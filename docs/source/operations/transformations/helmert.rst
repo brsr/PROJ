@@ -33,7 +33,7 @@ kinematic transformations from global reference frames to local static frames.
 
 All of the parameters described in the table above are marked as optional. This is true
 as long as at least one parameter is defined in the setup of the transformation.
-The behaviour of the transformation depends on which parameters are used in the setup.
+The behavior of the transformation depends on which parameters are used in the setup.
 For instance, if a rate of change parameter is specified a kinematic version of the
 transformation is used.
 
@@ -349,7 +349,7 @@ For :math:`\mathbf{R}`, this yields:
      \end{bmatrix}
 
 
-Using the small angle approxition the rotation matrix can be simplified to
+Using the small angle approximation the rotation matrix can be simplified to
 
 .. math::
     :label: rot_approx

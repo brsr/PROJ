@@ -37,15 +37,15 @@ Transformation objects
             PJ_INV   = -1    /* Inverse    */
         } PJ_DIRECTION;
 
-    .. c:member:: PJ_FWD
+    .. cpp:enumerator:: PJ_FWD
 
         Perform transformation in the forward direction.
 
-    .. c:member:: PJ_IDENT
+    .. cpp:enumerator:: PJ_IDENT
 
         Identity. Do nothing.
 
-    .. c:member:: PJ_INV
+    .. cpp:enumerator:: PJ_INV
 
         Perform transformation in the inverse direction.
 
@@ -314,6 +314,48 @@ Ancillary types for geodetic computations
 
         Third rotation angle, kappa.
 
+.. c:type:: PJ_ENU
+
+    East, north and up components.
+
+    .. code-block:: c
+
+        typedef struct { double e, n, u; }          PJ_ENU;
+
+    .. c:member:: double PJ_ENU.e
+
+        East component.
+
+    .. c:member:: double PJ_ENU.n
+
+        North component.
+
+    .. c:member:: double PJ_ENU.u
+
+        Up component.
+
+
+.. c:type:: PJ_GEOD
+
+    Geodesic length, forward and reverse azimuths.
+
+    .. code-block:: C
+
+        typedef struct { double s, a1, a2; }        PJ_GEOD;
+
+    .. c:member:: double PJ_GEOD.s
+
+        Geodesic length.
+
+    .. c:member:: double PJ_GEOD.a1
+
+        Forward azimuth.
+
+    .. c:member:: double PJ_GEOD.a2
+
+        Reverse azimuth.
+
+
 
 Complex coordinate types
 --------------------------------------------------------------------------------
@@ -331,6 +373,9 @@ Complex coordinate types
             PJ_XYZT xyzt;
             PJ_UVWT uvwt;
             PJ_LPZT lpzt;
+            PJ_GEOD geod;
+            PJ_OPK opk;
+            PJ_ENU enu;
             PJ_XYZ  xyz;
             PJ_UVW  uvw;
             PJ_LPZ  lpz;
@@ -354,6 +399,18 @@ Complex coordinate types
     .. c:member:: PJ_LPZT PJ_COORD.lpzt
 
         Longitude, latitude, vertical and time components.
+
+    .. c:member:: PJ_GEOD PJ_COORD.geod
+
+        Geodesic length, forward and reverse azimuths.
+
+    .. c:member:: PJ_OPK PJ_COORD.opk
+
+        Rotations, for instance three euler angles.
+
+    .. c:member:: PJ_ENU PJ_COORD.enu
+
+        East, north and up components.
 
     .. c:member:: PJ_XYZ PJ_COORD.xyz
 
@@ -486,7 +543,7 @@ List structures
 
         Operation entry point.
 
-    .. c:member:: char * const *
+    .. c:member:: char * const * descr
 
         Description of operation.
 
@@ -514,7 +571,7 @@ List structures
 
     .. c:member:: const char *ell
 
-        Elliptical parameter, e.g. `rf=298.257` or `b=6356772.2`.
+        Elliptical parameter, e.g. ``rf=298.257`` or ``b=6356772.2``.
 
     .. c:member:: const char *name
 
@@ -613,8 +670,9 @@ Info structures
 
         Search path for PROJ. List of directories separated by
         semicolons (Windows) or colons (non-Windows), e.g.
-        "C:\\Users\\doctorwho;C:\\OSGeo4W64\\share\\proj".
-        Grids and init files are looked for in directories in the search path.
+        ``C:\\Users\\doctorwho;C:\\OSGeo4W64\\share\\proj``.
+        Grids and :ref:`init files <init_files>` are looked for in
+        directories in the search path.
 
 .. c:type:: PJ_PROJ_INFO
 
@@ -637,7 +695,7 @@ Info structures
     .. c:member:: const char *PJ_PROJ_INFO.id
 
         Short ID of the operation the :c:type:`PJ` object is based on, that is,
-        what comes afther the ``+proj=`` in a proj-string, e.g. "*merc*".
+        what comes after the ``+proj=`` in a proj-string, e.g. "*merc*".
 
     .. c:member:: const char *PJ_PROJ_INFO.description
 
@@ -700,7 +758,7 @@ Info structures
 
     .. c:member:: int PJ_GRID_INFO.n_lat
 
-        Number of grid cells in the latitudianl direction.
+        Number of grid cells in the latitudinal direction.
 
     .. c:member:: double PJ_GRID_INFO.cs_lon
 
@@ -736,7 +794,7 @@ Info structures
 
     .. c:member:: char PJ_INIT_INFO.version[32]
 
-        Version number of init-file, e.g. "*9.0.0*"
+        Version number of init file, e.g. "*9.0.0*"
 
     .. c:member:: char PJ_INIT_INFO.origin[32]
 
@@ -744,7 +802,103 @@ Info structures
 
     .. c:member:: char PJ_INIT_INFO.lastupdate
 
-        Date of last update of the init-file.
+        Date of last update of the init file.
+
+
+.. _error_codes:
+
+Error codes
+-----------
+
+.. versionadded:: 8.0.0
+
+Three classes of errors are defined below. The belonging of a given error
+code to a class can bit tested with a binary and test. The error class itself
+can be used as an error value in some rare cases where the error does not
+fit into a more precise error value.
+
+Those error codes are still quite generic for a number of them. Details on the
+actual errors will be typically logged with the PJ_LOG_ERROR level.
+
+Errors in class PROJ_ERR_INVALID_OP
++++++++++++++++++++++++++++++++++++
+
+.. c:macro:: PROJ_ERR_INVALID_OP
+
+    Class of error codes typically related to coordinate operation initialization,
+    typically when creating a PJ* object from a PROJ string.
+
+    .. note:: some of them can also be emitted during coordinate transformation,
+              like PROJ_ERR_INVALID_OP_FILE_NOT_FOUND_OR_INVALID in case the resource loading
+              is deferred until it is really needed.
+
+.. c:macro:: PROJ_ERR_INVALID_OP_WRONG_SYNTAX
+
+    Invalid pipeline structure, missing +proj argument, etc.
+
+.. c:macro:: PROJ_ERR_INVALID_OP_MISSING_ARG
+
+    Missing required operation parameter
+
+.. c:macro:: PROJ_ERR_INVALID_OP_ILLEGAL_ARG_VALUE
+
+    One of the operation parameter has an illegal value.
+
+.. c:macro:: PROJ_ERR_INVALID_OP_MUTUALLY_EXCLUSIVE_ARGS
+
+    Mutually exclusive arguments
+
+.. c:macro:: PROJ_ERR_INVALID_OP_FILE_NOT_FOUND_OR_INVALID
+
+    File not found or with invalid content (particular case of PROJ_ERR_INVALID_OP_ILLEGAL_ARG_VALUE)
+
+Errors in class PROJ_ERR_COORD_TRANSFM
+++++++++++++++++++++++++++++++++++++++
+
+.. c:macro:: PROJ_ERR_COORD_TRANSFM
+
+    Class of error codes related to transformation on a specific coordinate.
+
+.. c:macro:: PROJ_ERR_COORD_TRANSFM_INVALID_COORD
+
+    Invalid input coordinate. e.g. a latitude > 90°.
+
+.. c:macro:: PROJ_ERR_COORD_TRANSFM_OUTSIDE_PROJECTION_DOMAIN
+
+    Coordinate is outside of the projection domain. e.g. approximate mercator
+    with \|longitude - lon_0\| > 90°, or iterative convergence method failed.
+
+.. c:macro:: PROJ_ERR_COORD_TRANSFM_NO_OPERATION
+
+    No operation found, e.g. if no match the required accuracy, or if ballpark transformations
+    were asked to not be used and they would be only such candidate.
+
+.. c:macro:: PROJ_ERR_COORD_TRANSFM_OUTSIDE_GRID
+
+    Point to transform falls outside grid/subgrid/TIN.
+
+.. c:macro:: PROJ_ERR_COORD_TRANSFM_GRID_AT_NODATA
+
+    Point to transform falls in a grid cell that evaluates to nodata.
+
+Errors in class PROJ_ERR_OTHER
+++++++++++++++++++++++++++++++
+
+.. c:macro:: PROJ_ERR_OTHER
+
+    Class of error codes that do not fit into one of the above class.
+
+.. c:macro:: PROJ_ERR_OTHER_API_MISUSE
+
+    Error related to a misuse of PROJ API.
+
+.. c:macro:: PROJ_ERR_OTHER_NO_INVERSE_OP
+
+    No inverse method available
+
+.. c:macro:: PROJ_ERR_OTHER_NETWORK_ERROR
+
+    Failure when accessing a network resource.
 
 
 Logging
@@ -755,24 +909,24 @@ Logging
     Enum of logging levels in PROJ. Used to set the logging level in PROJ.
     Usually using :c:func:`proj_log_level`.
 
-    .. c:member:: PJ_LOG_NONE
+    .. cpp:enumerator:: PJ_LOG_NONE
 
         Don't log anything.
 
-    .. c:member:: PJ_LOG_ERROR
+    .. cpp:enumerator:: PJ_LOG_ERROR
 
         Log only errors.
 
-    .. c:member:: PJ_LOG_DEBUG
+    .. cpp:enumerator:: PJ_LOG_DEBUG
 
         Log errors and additional debug information.
 
-    .. c:member:: PJ_LOG_TRACE
+    .. cpp:enumerator:: PJ_LOG_TRACE
 
         Highest logging level. Log everything including very detailed debug
         information.
 
-    .. c:member:: PJ_LOG_TELL
+    .. cpp:enumerator:: PJ_LOG_TELL
 
         Special logging level that when used in :c:func:`proj_log_level`
         will return the current logging level set in PROJ.
@@ -788,9 +942,9 @@ Logging
 
         typedef void (*PJ_LOG_FUNCTION)(void *, int, const char *);
 
-    where the :c:type:`void` pointer references a data structure used by the
-    calling application, the :c:type:`int` is used to set the logging level
-    and the :c:type:`const char` pointer is the string that will be logged
+    where the first argument (void pointer) references a data structure used by the
+    calling application, the second argument (int type) is used to set the logging level
+    and the third argument (const char pointer) is the string that will be logged
     by the function.
 
 
@@ -840,5 +994,6 @@ C API for ISO-19111 functionality
 .. doxygengroup:: iso19111_types
    :project: doxygen_api
    :content-only:
+   :members:
 
 

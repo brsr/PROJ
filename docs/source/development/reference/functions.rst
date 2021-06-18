@@ -11,19 +11,29 @@ Threading contexts
 
     Create a new threading-context.
 
-    :returns: :c:type:`PJ_CONTEXT*`
+    :returns: a new context
+
+.. c:function:: PJ_CONTEXT* proj_context_clone(PJ_CONTEXT *ctx)
+
+    .. versionadded:: 7.2
+
+    Create a new threading-context based on an existing context.
+
+    :returns: a new context
 
 .. c:function:: void proj_context_destroy(PJ_CONTEXT *ctx)
 
     Deallocate a threading-context.
 
-    :param PJ_CONTEXT* ctx: Threading context.
+    :param ctx: Threading context.
+    :type ctx: :c:type:`PJ_CONTEXT` *
+
 
 Transformation setup
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 The objects returned by the functions defined in this section have minimal
-interaction with the the functions of the
+interaction with the functions of the
 `C API for ISO-19111 functionality`_, and vice versa. See its introduction
 paragraph for more details.
 
@@ -35,11 +45,15 @@ paragraph for more details.
     - a WKT string,
     - an object code (like "EPSG:4326", "urn:ogc:def:crs:EPSG::4326",
       "urn:ogc:def:coordinateOperation:EPSG::1671"),
+    - an Object name. e.g "WGS 84", "WGS 84 / UTM zone 31N". In that case as
+      uniqueness is not guaranteed, heuristics are applied to determine the appropriate best match.
     - a OGC URN combining references for compound coordinate reference systems
       (e.g "urn:ogc:def:crs,crs:EPSG::2393,crs:EPSG::5717" or custom abbreviated
       syntax "EPSG:2393+5717"),
     - a OGC URN combining references for concatenated operations
       (e.g. "urn:ogc:def:coordinateOperation,coordinateOperation:EPSG::3895,coordinateOperation:EPSG::1618")
+    - a PROJJSON string. The jsonschema is at https://proj.org/schemas/v0.2/projjson.schema.json (*added in 6.2*)
+    - a compound CRS made from two object names separated with " + ". e.g. "WGS 84 + EGM96 height" (*added in 7.1*)
 
     Example call:
 
@@ -63,9 +77,10 @@ paragraph for more details.
 
     The returned :c:type:`PJ`-pointer should be deallocated with :c:func:`proj_destroy`.
 
-    :param PJ_CONTEXT* ctx: Threading context.
-    :param `definition`: Proj-string of the desired transformation.
-    :type `definition`: const char*
+    :param ctx: Threading context.
+    :type ctx: :c:type:`PJ_CONTEXT` *
+    :param definition: Proj-string of the desired transformation.
+    :type definition: `const char*`
 
 
 .. c:function:: PJ* proj_create_argv(PJ_CONTEXT *ctx, int argc, char **argv)
@@ -93,10 +108,13 @@ paragraph for more details.
 
     The returned :c:type:`PJ`-pointer should be deallocated with :c:func:`proj_destroy`.
 
-    :param PJ_CONTEXT* ctx: Threading context
-    :param int argc: Count of arguments in :c:data:`argv`
-    :param char** argv: Vector of strings with proj-string parameters, e.g. ``+proj=merc``
-    :returns: :c:type:`PJ*`
+    :param ctx: Threading context.
+    :type ctx: :c:type:`PJ_CONTEXT` *
+    :param argc: Count of arguments in :c:data:`argv`
+    :type argc: `int`
+    :param argv: Array of strings with proj-string parameters, e.g. ``+proj=merc``
+    :type argv: `char **`
+    :returns: :c:type:`PJ` *
 
 .. c:function:: PJ* proj_create_crs_to_crs(PJ_CONTEXT *ctx, const char *source_crs, const char *target_crs, PJ_AREA *area)
 
@@ -144,14 +162,15 @@ paragraph for more details.
 
     The returned :c:type:`PJ`-pointer should be deallocated with :c:func:`proj_destroy`.
 
-    :param PJ_CONTEXT* ctx: Threading context.
+    :param ctx: Threading context.
+    :type ctx: :c:type:`PJ_CONTEXT` *
     :param `source_crs`: Source CRS.
-    :type `source_crs`: const char*
+    :type `source_crs`: `const char*`
     :param `target_crs`: Destination SRS.
-    :type `target_crs`: const char*
+    :type `target_crs`: `const char*`
     :param `area`: Descriptor of the desired area for the transformation.
-    :type `area`: PJ_AREA
-    :returns: :c:type:`PJ*`
+    :type `area`: :c:type:`PJ_AREA` *
+    :returns: :c:type:`PJ` *
 
 .. c:function:: PJ* proj_create_crs_to_crs_from_pj(PJ_CONTEXT *ctx, PJ *source_crs, PJ *target_crs, PJ_AREA *area, const char* const *options)
 
@@ -161,35 +180,37 @@ paragraph for more details.
     coordinate reference systems.
 
     This is the same as :c:func:`proj_create_crs_to_crs` except that the source and
-    target CRS are passed as PJ* objects which must of the CRS variety.
+    target CRS are passed as PJ* objects which must be of the CRS variety.
 
-    :param `options`: should be set to NULL currently.
+    :param `options`: a list of NUL terminated options, or NULL.
 
-.. c:function:: PJ *proj_normalize_for_visualization(PJ_CONTEXT *ctx, const PJ* obj)
+    The list of supported options is:
 
-    .. versionadded:: 6.1.0
+    - AUTHORITY=name: to restrict the authority of coordinate operations
+      looked up in the database. When not specified, coordinate
+      ``operations from any authority`` will be searched, with the restrictions set
+      in the authority_to_authority_preference database table related to the authority
+      of the source/target CRS themselves.
+      If authority is set to "any", then coordinate operations from any authority will be searched
+      If authority is a non-empty string different of ``any``, then coordinate operations
+      will be searched only in that authority namespace (e.g ``EPSG``).
 
-    Returns a PJ* object whose axis order is the one expected for
-    visualization purposes.
+    - ACCURACY=value: to set the minimum desired accuracy (in metres) of the
+      candidate coordinate operations.
 
-    The input object must be a coordinate operation, that has been created with
-    proj_create_crs_to_crs().
-    If the axis order of its source or target CRS is northing,easting, then an
-    axis swap operation will be inserted.
+    - ALLOW_BALLPARK=YES/NO: can be set to NO to disallow the use of
+      :term:`Ballpark transformation` in the candidate coordinate operations.
 
-    The returned :c:type:`PJ`-pointer should be deallocated with :c:func:`proj_destroy`.
-
-    :param PJ_CONTEXT* ctx: Threading context.
-    :param `obj`: Object of type CoordinateOperation
-    :returns: :c:type:`PJ*`
-
+.. doxygenfunction:: proj_normalize_for_visualization
+   :project: doxygen_api
 
 .. c:function:: PJ* proj_destroy(PJ *P)
 
     Deallocate a :c:type:`PJ` transformation object.
 
-    :param PJ* P:
-    :returns: :c:type:`PJ*`
+    :param `P`: Transformation object
+    :type `P`: const :c:type:`PJ` *
+    :returns: :c:type:`PJ` *
 
 Area of interest
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -204,7 +225,7 @@ Area of interest
     Such an area of use is to be passed to :c:func:`proj_create_crs_to_crs` to
     specify the area of use for the choice of relevant coordinate operations.
 
-    :returns: :c:type:`PJ_AREA*` to be deallocated with :c:func:`proj_area_destroy`
+    :returns: :c:type:`PJ_AREA` * to be deallocated with :c:func:`proj_area_destroy`
 
 
 .. c:function:: void proj_area_set_bbox(PJ_AREA *area, double west_lon_degree, double south_lat_degree, double east_lon_degree, double north_lat_degree)
@@ -240,16 +261,19 @@ Coordinate transformation
 
     Transform a single :c:type:`PJ_COORD` coordinate.
 
-    :param PJ* P:
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
     :param `direction`: Transformation direction.
     :type `direction`: PJ_DIRECTION
-    :param PJ_COORD coord: Coordinate that will be transformed.
+    :param coord: Coordinate that will be transformed.
+    :type coord: :c:type:`PJ_COORD`
     :returns: :c:type:`PJ_COORD`
 
 
 .. c:function:: size_t proj_trans_generic(PJ *P, PJ_DIRECTION direction, \
-                                          double *x, size_t sx, size_t nx, double *y, \
-                                          size_t sy, size_t ny, double *z, size_t sz, size_t nz, \
+                                          double *x, size_t sx, size_t nx, \
+                                          double *y, size_t sy, size_t ny, \
+                                          double *z, size_t sz, size_t nz, \
                                           double *t, size_t st, size_t nt)
 
     Transform a series of coordinates, where the individual coordinate dimension
@@ -261,9 +285,9 @@ Coordinate transformation
         3. of length one, i.e. a constant, which will be treated as a fully
            populated array of that constant value
 
-    .. note:: Even though he coordinate components are named :c:data:`x`, :c:data:`y`,
+    .. note:: Even though the coordinate components are named :c:data:`x`, :c:data:`y`,
               :c:data:`z` and :c:data:`t`, axis ordering of the to and from CRS
-              is respected. Transformations exhibit the same behaviour
+              is respected. Transformations exhibit the same behavior
               as if they were gathered in a :c:type:`PJ_COORD` struct.
 
 
@@ -313,34 +337,58 @@ Coordinate transformation
               will return from the call in altered state. Hence, remember to
               reinitialize between repeated calls.
 
-    :param PJ* P: Transformation object
-    :param `direction`: Transformation direction
-    :type `PJ_DIRECTION`:
-    :param double* x: Array of x-coordinates
-    :param double* y: Array of y-coordinates
-    :param double* z: Array of z-coordinates
-    :param double* t: Array of t-coordinates
-    :param size_t sx: Step length, in bytes, between consecutive elements of the corresponding array
-    :param size_t nx: Number of elements in the corresponding array
-    :param size_t sy: Step length, in bytes, between consecutive elements of the corresponding array
-    :param size_t nv: Number of elements in the corresponding array
-    :param size_t sz: Step length, in bytes, between consecutive elements of the corresponding array
-    :param size_t nz: Number of elements in the corresponding array
-    :param size_t st: Step length, in bytes, between consecutive elements of the corresponding array
-    :param size_t nt: Number of elements in the corresponding array
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
+    :param direction: Transformation direction.
+    :type direction: PJ_DIRECTION
+    :param x: Array of x-coordinates
+    :type x: `double *`
+    :param sx: Step length, in bytes, between consecutive elements of the corresponding array
+    :type sx: `size_t`
+    :param nx: Number of elements in the corresponding array
+    :type nx: `size_t`
+    :param y: Array of y-coordinates
+    :type y: `double *`
+    :param sy: Step length, in bytes, between consecutive elements of the corresponding array
+    :type sy: `size_t`
+    :param ny: Number of elements in the corresponding array
+    :type ny: `size_t`
+    :param z: Array of z-coordinates
+    :type z: `double *`
+    :param sz: Step length, in bytes, between consecutive elements of the corresponding array
+    :type sz: `size_t`
+    :param nz: Number of elements in the corresponding array
+    :type nz: `size_t`
+    :param t: Array of t-coordinates
+    :type t: `double *`
+    :param st: Step length, in bytes, between consecutive elements of the corresponding array
+    :type st: `size_t`
+    :param nt: Number of elements in the corresponding array
+    :type nt: `size_t`
     :returns: Number of transformations successfully completed
 
 
 
-.. c:function:: size_t proj_trans_array(PJ *P, PJ_DIRECTION direction, size_t n, PJ_COORD *coord)
+.. c:function:: int proj_trans_array(PJ *P, PJ_DIRECTION direction, size_t n, PJ_COORD *coord)
 
     Batch transform an array of :c:type:`PJ_COORD`.
 
-    :param PJ* P:
-    :param `direction`: Transformation direction
+    Performs transformation on all points, even if errors occur on some points
+    (new to 8.0. Previous versions would exit early in case of failure on a given point)
+
+    Individual points that fail to transform will have their components set to
+    ``HUGE_VAL``
+
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
+    :param `direction`: Transformation direction.
     :type `direction`: PJ_DIRECTION
-    :param size_t n: Number of coordinates in :c:data:`coord`
-    :returns: :c:type:`size_t` 0 if all observations are transformed without error, otherwise returns error number
+    :param n: Number of coordinates in :c:data:`coord`
+    :type n: `size_t`
+    :returns: `int` 0 if all observations are transformed without error, otherwise returns error number.
+              This error number will be a precise error number if all coordinates that fail to transform
+              for the same reason, or a generic error code if they fail for different
+              reasons.
 
 
 Error reporting
@@ -354,9 +402,12 @@ Error reporting
     context is read. A text representation of the error number can be retrieved
     with :c:func:`proj_errno_string`.
 
-    :param: PJ* P: Transformation object.
+    Consult :ref:`error_codes` for the list of error codes (PROJ >= 8.0)
 
-    :returns: :c:type:`int`
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
+
+    :returns: `int`
 
 .. c:function:: int proj_context_errno(PJ_CONTEXT *ctx)
 
@@ -365,16 +416,21 @@ Error reporting
     transformation. A text representation of the error number can be retrieved
     with :c:func:`proj_errno_string`.
 
-    :param: PJ_CONTEXT* ctx: threading context.
+    Consult :ref:`error_codes` for the list of error codes (PROJ >= 8.0)
 
-    :returns: :c:type:`int`
+    :param ctx: threading context.
+    :type ctx: :c:type:`PJ_CONTEXT` *
+
+    :returns: `int`
 
 .. c:function:: void proj_errno_set(PJ *P, int err)
 
-Change the error-state of :c:data:`P` to `err`.
+    Change the error-state of :c:data:`P` to `err`.
 
-    :param PJ* P: Transformation object.
-    :param int err: Error number.
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
+    :param err: Error number.
+    :type err: `int`
 
 .. c:function:: int proj_errno_reset(PJ *P)
 
@@ -397,9 +453,10 @@ Change the error-state of :c:data:`P` to `err`.
             return;
         }
 
-    :param: PJ* P: Transformation object.
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
 
-    :returns: :c:type:`int` Returns the previous value of the errno, for convenient reset/restore operations.
+    :returns: `int` Returns the previous value of the errno, for convenient reset/restore operations.
 
 .. c:function:: void proj_errno_restore(PJ *P, int err)
 
@@ -414,8 +471,10 @@ Change the error-state of :c:data:`P` to `err`.
 
     See usage example under :c:func:`proj_errno_reset`
 
-    :param PJ* P: Transformation object.
-    :param int err: Error code.
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
+    :param err: Error number.
+    :type err: `int`
 
 .. c:function:: const char* proj_errno_string(int err)
 
@@ -423,9 +482,26 @@ Change the error-state of :c:data:`P` to `err`.
 
     Get a text representation of an error number.
 
-    :param int err: Error number.
+    .. deprecated:: This function is potentially thread-unsafe, replaced by :c:func:`proj_context_errno_string`.
 
-    :returns: :c:type:`const char*` String with description of error.
+    :param err: Error number.
+    :type err: `int`
+
+    :returns: `const char*` String with description of error.
+
+.. c:function:: const char* proj_context_errno_string(PJ_CONTEXT* ctx, int err)
+
+    .. versionadded:: 8.0.0
+
+    Get a text representation of an error number.
+
+    :param ctx: threading context.
+    :type ctx: :c:type:`PJ_CONTEXT` *
+
+    :param err: Error number.
+    :type err: `int`
+
+    :returns: `const char*` String with description of error.
 
 Logging
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -437,8 +513,10 @@ Logging
     :c:data:`level` set to :c:type:`PJ_LOG_TELL` the function returns the current
     logging level without changing it.
 
-    :param PJ_CONTEXT* ctx: Threading context.
-    :param PJ_LOG_LEVEL level: New logging level.
+    :param ctx: Threading context.
+    :type ctx: :c:type:`PJ_CONTEXT` *
+    :param level: New logging level.
+    :type level: PJ_LOG_LEVEL
 
     :returns: :c:type:`PJ_LOG_LEVEL`
 
@@ -448,9 +526,12 @@ Logging
 
     Override the internal log function of PROJ.
 
-    :param PJ_CONTEXT* ctx: Threading context.
-    :param void* app_data: Pointer to data structure used by the calling application.
-    :param PJ_LOG_FUNCTION logf: Log function that overrides the PROJ log function.
+    :param ctx: Threading context.
+    :type ctx: :c:type:`PJ_CONTEXT` *
+    :param app_data: Pointer to data structure used by the calling application.
+    :type app_data: `void *`
+    :param logf: Log function that overrides the PROJ log function.
+    :type logf: :c:type:`PJ_LOG_FUNCTION`
 
     .. versionadded:: 5.1.0
 
@@ -467,8 +548,8 @@ Info functions
 
     Get information about a specific transformation object, :c:data:`P`.
 
-    :param `P`: Transformation object
-    :type `P`: const PJ*
+    :param P: Transformation object
+    :type P: const :c:type:`PJ` *
     :returns: :c:type:`PJ_PROJ_INFO`
 
 .. c:function:: PJ_GRID_INFO proj_grid_info(const char *gridname)
@@ -476,7 +557,7 @@ Info functions
     Get information about a specific grid.
 
     :param `gridname`: Gridname in the PROJ searchpath
-    :type `gridname`: const char*
+    :type `gridname`: `const char*`
     :returns: :c:type:`PJ_GRID_INFO`
 
 .. c:function:: PJ_INIT_INFO proj_init_info(const char *initname)
@@ -484,7 +565,7 @@ Info functions
     Get information about a specific init file.
 
     :param `initname`: Init file in the PROJ searchpath
-    :type `initname`: const char*
+    :type `initname`: `const char*`
     :returns: :c:type:`PJ_INIT_INFO`
 
 Lists
@@ -505,7 +586,7 @@ Lists
             printf("%s\n", ops->id);
 
 
-    :returns: :c:type:`PJ_OPERATIONS*`
+    :returns: const :c:type:`PJ_OPERATIONS` *
 
 .. c:function:: const PJ_ELLPS* proj_list_ellps(void)
 
@@ -513,7 +594,7 @@ Lists
     of the returned array is a NULL-entry. The array is statically allocated
     and does not need to be freed after use.
 
-    :returns: :c:type:`PJ_ELLPS*`
+    :returns: const :c:type:`PJ_ELLPS` *
 
 .. c:function:: const PJ_UNITS* proj_list_units(void)
 
@@ -521,7 +602,10 @@ Lists
     entry of the returned array is a NULL-entry. The array is statically
     allocated and does not need to be freed after use.
 
-    :returns: :c:type:`PJ_UNITS*`
+    Note: starting with PROJ 7.1, this function is deprecated by
+    :cpp:func:`proj_get_units_from_database`
+
+    :returns: const :c:type:`PJ_UNITS` *
 
 .. c:function:: const PJ_PRIME_MERIDIANS* proj_list_prime_meridians(void)
 
@@ -529,7 +613,7 @@ Lists
     entry of the returned array is a NULL-entry. The array is statically
     allocated and does not need to be freed after use.
 
-    :returns: :c:type:`PJ_PRIME_MERIDIANS*`
+    :returns: const :c:type:`PJ_PRIME_MERIDIANS` *
 
 Distances
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -539,10 +623,17 @@ Distances
     Calculate geodesic distance between two points in geodetic coordinates. The
     calculated distance is between the two points located on the ellipsoid.
 
-    :param PJ* P: Transformation object
+    The coordinates in :c:data:`a` and :c:data:`b` needs to be given as longitude
+    and latitude in radians. Note that the axis order of the :c:data:`P` object
+    is not taken into account in this function, so even though a CRS object comes
+    with axis ordering latitude/longitude coordinates used in this function should
+    be reordered as longitude/latitude.
+
+    :param P: Transformation or CRS object
+    :type P: const :c:type:`PJ` *
     :param PJ_COORD a: Coordinate of first point
     :param PJ_COORD b: Coordinate of second point
-    :returns: :c:type:`double` Distance between :c:data:`a` and :c:data:`b` in meters.
+    :returns: `double` Distance between :c:data:`a` and :c:data:`b` in meters.
 
 .. c:function:: double proj_lpz_dist(const PJ *P, PJ_COORD a, PJ_COORD b)
 
@@ -550,10 +641,17 @@ Distances
     Similar to :c:func:`proj_lp_dist` but also takes the height above the ellipsoid
     into account.
 
-    :param PJ* P: Transformation object
+    The coordinates in :c:data:`a` and :c:data:`b` needs to be given as longitude
+    and latitude in radians. Note that the axis order of the :c:data:`P` object
+    is not taken into account in this function, so even though a CRS object comes
+    with axis ordering latitude/longitude coordinates used in this function should
+    be reordered as longitude/latitude.
+
+    :param P: Transformation or CRS object
+    :type P: const :c:type:`PJ` *
     :param PJ_COORD a: Coordinate of first point
     :param PJ_COORD b: Coordinate of second point
-    :returns: :c:type:`double` Distance between :c:data:`a` and :c:data:`b` in meters.
+    :returns: `double` Distance between :c:data:`a` and :c:data:`b` in meters.
 
 .. c:function:: double proj_xy_dist(PJ_COORD a, PJ_COORD b)
 
@@ -561,7 +659,7 @@ Distances
 
     :param PJ_COORD a: First coordinate
     :param PJ_COORD b: Second coordinate
-    :returns: :c:type:`double` Distance between :c:data:`a` and :c:data:`b` in meters.
+    :returns: `double` Distance between :c:data:`a` and :c:data:`b` in meters.
 
 .. c:function:: double proj_xyz_dist(PJ_COORD a, PJ_COORD b)
 
@@ -569,7 +667,28 @@ Distances
 
     :param PJ_COORD a: First coordinate
     :param PJ_COORD b: Second coordinate
-    :returns: :c:type:`double` Distance between :c:data:`a` and :c:data:`b` in meters.
+    :returns: `double` Distance between :c:data:`a` and :c:data:`b` in meters.
+
+.. c:function:: PJ_COORD proj_geod(const PJ *P, PJ_COORD a, PJ_COORD b)
+
+    Calculate the geodesic distance as well as forward and reverse azimuth
+    between two points on the ellipsoid.
+
+    The coordinates in :c:data:`a` and :c:data:`b` needs to be given as longitude
+    and latitude in radians. Note that the axis order of the :c:data:`P` object
+    is not taken into account in this function, so even though a CRS object comes
+    with axis ordering latitude/longitude coordinates used in this function should
+    be reordered as longitude/latitude.
+
+    :param P: Transformation or CRS object
+    :type P: const :c:type:`PJ` *
+    :param PJ_COORD a: Coordinate of first point
+    :param PJ_COORD b: Coordinate of second point
+    :returns: `PJ_COORD` where the first value is the distance between :c:data:`a`
+              and :c:data:`b` in meters, the second value is the forward azimuth
+              and the third value is the reverse azimuth. The fourth coordinate
+              value is unused.
+
 
 
 Various
@@ -601,10 +720,14 @@ Various
     :c:type:`PJ_UVWT` or :c:type:`PJ_LPZT`.
 
 
-    :param double x: 1st component in a :c:type:`PJ_COORD`
-    :param double y: 2nd component in a :c:type:`PJ_COORD`
-    :param double z: 3rd component in a :c:type:`PJ_COORD`
-    :param double t: 4th component in a :c:type:`PJ_COORD`
+    :param x: 1st component in a :c:type:`PJ_COORD`
+    :type x: `double`
+    :param y: 2nd component in a :c:type:`PJ_COORD`
+    :type y: `double`
+    :param z: 3rd component in a :c:type:`PJ_COORD`
+    :type z: `double`
+    :param t: 4th component in a :c:type:`PJ_COORD`
+    :type t: `double`
     :returns: :c:type:`PJ_COORD`
 
 
@@ -616,13 +739,15 @@ Various
     distance of the starting point :c:data:`coo` and the resulting
     coordinate after :c:data:`n` iterations back and forth.
 
-    :param PJ* P:
-    :type `P`: const PJ*
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
     :param `direction`: Starting direction of transformation
     :type `direction`: PJ_DIRECTION
-    :param int n: Number of roundtrip transformations
-    :param PJ_COORD coord: Input coordinate
-    :returns: :c:type:`double` Distance between original coordinate and the \
+    :param n: Number of roundtrip transformations
+    :type n: `int`
+    :param coord: Input coordinate
+    :type coord: :c:type:`PJ_COORD` *
+    :returns: `double` Distance between original coordinate and the \
               resulting coordinate after :c:data:`n` transformation iterations.
 
 .. c:function:: PJ_FACTORS proj_factors(PJ *P, PJ_COORD lp)
@@ -634,25 +759,27 @@ Various
     The function also calculates the partial derivatives of the given
     coordinate.
 
-    :param `P`: Transformation object
-    :type `P`: const PJ*
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
     :param `lp`: Geodetic coordinate
-    :type `lp`: const PJ_COORD
+    :type `lp`: :c:type:`PJ_COORD`
     :returns: :c:type:`PJ_FACTORS`
 
 .. c:function:: double proj_torad(double angle_in_degrees)
 
     Convert degrees to radians.
 
-    :param double angle_in_degrees: Degrees
-    :returns: :c:type:`double` Radians
+    :param angle_in_degrees: Degrees
+    :type angle_in_degrees: `double`
+    :returns: `double` Radians
 
 .. c:function:: double proj_todeg(double angle_in_radians)
 
     Convert radians to degrees
 
-    :param double angle_in_radians: Radians
-    :returns: :c:type:`double` Degrees
+    :param angle_in_radians: Radians
+    :type angle_in_radians: `double`
+    :returns: `double` Degrees
 
 .. c:function:: double proj_dmstor(const char *is, char **rs)
 
@@ -660,7 +787,7 @@ Various
     Works similarly to the C standard library function :c:func:`strtod`.
 
     :param `is`: Value to be converted to radians
-    :type `is`: const  char*
+    :type `is`: `const  char*`
     :param `rs`: Reference to an already allocated char*, whose value is \
                  set by the function to the next character in :c:data:`is` \
                  after the numerical value.
@@ -669,32 +796,60 @@ Various
 
     Convert radians to string representation of degrees, minutes and seconds.
 
-    :param char* s: Buffer that holds the output string
-    :param double r: Value to convert to dms-representation
-    :param int pos: Character denoting positive direction, typically `'N'` or `'E'`.
-    :param int neg: Character denoting negative direction, typically `'S'` or `'W'`.
-    :returns: :c:type:`char*` Pointer to output buffer (same as :c:data:`s`)
+    :param s: Buffer that holds the output string
+    :type s: `char *`
+    :param r: Value to convert to dms-representation
+    :type r: `double`
+    :param pos: Character denoting positive direction, typically `'N'` or `'E'`.
+    :type pos: `int`
+    :param neg: Character denoting negative direction, typically `'S'` or `'W'`.
+    :type neg: `int`
+    :returns: `char*` Pointer to output buffer (same as :c:data:`s`)
 
 
 .. c:function:: int proj_angular_input (PJ *P, enum PJ_DIRECTION dir)
 
-    Check if a operation expects input in radians or not.
+    Check if an operation expects input in radians or not.
 
-    :param `P`: Transformation object
-    :type `P`: const PJ*
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
     :param `direction`: Starting direction of transformation
     :type `direction`: PJ_DIRECTION
-    :returns: :c:type:`int` 1 if input units is expected in radians, otherwise 0
+    :returns: `int` 1 if input units is expected in radians, otherwise 0
 
 .. c:function:: int proj_angular_output (PJ *P, enum PJ_DIRECTION dir)
 
     Check if an operation returns output in radians or not.
 
-    :param `P`: Transformation object
-    :type `P`: const PJ*
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
     :param `direction`: Starting direction of transformation
     :type `direction`: PJ_DIRECTION
-    :returns: :c:type:`int` 1 if output units is expected in radians, otherwise 0
+    :returns: `int` 1 if output units is expected in radians, otherwise 0
+
+.. c:function:: int proj_degree_input (PJ *P, enum PJ_DIRECTION dir)
+
+    .. versionadded:: 7.1.0
+
+    Check if an operation expects input in degrees or not.
+
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
+    :param `direction`: Starting direction of transformation
+    :type `direction`: PJ_DIRECTION
+    :returns: `int` 1 if input units is expected in degrees, otherwise 0
+
+.. c:function:: int proj_degree_output (PJ *P, enum PJ_DIRECTION dir)
+
+    .. versionadded:: 7.1.0
+
+    Check if an operation returns output in degrees or not.
+
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
+    :param `direction`: Starting direction of transformation
+    :type `direction`: PJ_DIRECTION
+    :returns: `int` 1 if output units is expected in degrees, otherwise 0
 
 
 Setting custom I/O functions
@@ -724,6 +879,12 @@ Network related functionality
    :project: doxygen_api
 
 .. doxygenfunction:: proj_context_set_url_endpoint
+   :project: doxygen_api
+
+.. doxygenfunction:: proj_context_get_url_endpoint
+   :project: doxygen_api
+
+.. doxygenfunction:: proj_context_get_user_writable_directory
    :project: doxygen_api
 
 .. doxygenfunction:: proj_grid_cache_set_enable
@@ -769,7 +930,7 @@ The PJ* objects returned by :c:func:`proj_create_from_wkt`,
 :c:func:`proj_create_from_database` and other functions in that section
 will have generally minimal interaction with the functions declared in the
 previous sections (calling those functions on those objects
-will either return an error or default/non-sensical values). The exception is
+will either return an error or default/nonsensical values). The exception is
 for ISO19111 objects of type CoordinateOperation that can be exported as a
 valid PROJ pipeline. In this case,  objects will work for example with
 :c:func:`proj_trans_generic`.

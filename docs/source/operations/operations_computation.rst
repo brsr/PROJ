@@ -5,7 +5,7 @@ Computation of coordinate operations between two CRS
 ================================================================================
 
 :Author: Even Rouault
-:Last Updated: 2020-01-02
+:Last Updated: 2021-02-10
 
 Introduction
 ------------
@@ -27,7 +27,7 @@ This document is meant as a plain text explanation of the code for developers,
 but also as a in-depth examination of what happens under the hood for curious PROJ
 users. It is important to keep in mind that it is not meant to be the ultimate
 source of truth of how coordinate operations should be computed. There are clearly
-implementation choices and compromises that can be questionned.
+implementation choices and compromises that can be questioned.
 
 Let us start with an example to research operations between the NAD27 and NAD83
 geographic CRS:
@@ -50,7 +50,7 @@ geographic CRS:
 
 The algorithm involves many cases, so we will progress in the explanation from
 the most simple case to more complex ones. We document here the working of this
-algorithm as implemented in PROJ 6.3.0.
+algorithm as implemented in PROJ 8.0.0.
 The results of some examples might also be quite sensitive to the content of the
 PROJ database and the PROJ version used.
 
@@ -59,9 +59,9 @@ From a code point of view, the entry point of the algorithm is the C++
 
 It combines several strategies:
 
-- look up in the PROJ database for available operations
-- consider the pair (source CRS, target CRS) to synthetize operations depending
-  on the nature of the source and target CRS.
+  - look up in the PROJ database for available operations
+  - consider the pair (source CRS, target CRS) to synthetize operations depending
+    on the nature of the source and target CRS.
 
 Geographic CRS to Geographic CRS, with known identifiers
 --------------------------------------------------------
@@ -69,7 +69,7 @@ Geographic CRS to Geographic CRS, with known identifiers
 With the above example of two geographic CRS, that have an identified identifier,
 (:program:`projinfo` internally resolves NAD27 to EPSG:4267 and NAD83 to EPSG:4269)
 the algorithm will first search
-in the coordinate operation related tables of the ``proj.db`` if there are records
+in the coordinate operation related tables of the :file:`proj.db` if there are records
 that list direct transformations between the source and the target CRS. The
 transformations typically involve :ref:`Helmert <helmert>`-style operations or datum shift based on
 grids (more esoteric operations are possible).
@@ -106,11 +106,8 @@ which can be used as an override).
 
 As those results all involve operations that does not have a perfect accuracy and that
 does not cover the area of use of the 2 CRSs, a
-'Ballpark geographic offset from NAD27 to NAD83' operation is synthetized by PROJ.
-This operation is a sort of dummy operation that only takes into account potential
-difference of axis orders (long-lat vs lat-long), units (degree vs grads) and
-prime meridian (Greewich vs Paris/Rome/other historic prime meridians). It does
-not attempt any datum shift, hence the "ballpark" qualifier in its name.
+'Ballpark geographic offset from NAD27 to NAD83' operation is synthetized by PROJ
+(see :term:`Ballpark transformation`)
 
 Filtering and sorting of coordinate operations
 ----------------------------------------------
@@ -126,7 +123,7 @@ must be retained or discarded:
 
 The sorting algorithm determines the order of relevance of the operations we got.
 A comparison function compares pair of operations to determine which of the
-two is the most releavant. This is implemented by the :cpp:func:`operator ()`
+two is the most relevant. This is implemented by the :cpp:func:`operator ()`
 method of the SortFunction structure.
 When comparing two operations, the following criteria are used. The tests are
 performed in the order they are listed below:
@@ -138,7 +135,7 @@ performed in the order they are listed below:
    ballpark vertical transformation (occurs when there is a geoid model).
 3. if both operations evaluate identically with respect to the above criterion,
    consider as more relevant an operation that does not include a synthetic
-   ballpark horizontal tranformation.
+   ballpark horizontal transformation.
 4. consider as more relevant an operation that refers to shift grids that are locally available.
 5. consider as more relevant an operation that refers to grids that are available
    in one of the proj-datumgrid packages, but not necessarily locally available
@@ -152,21 +149,34 @@ performed in the order they are listed below:
 10. in case of same accuracy, consider as more relevant an operation that does
     not use grids (operations that use only parameters will be faster)
 11. consider as more relevant an operation that involves less transformation steps
-12. and for completness, if two operations are comparable given all the above criteria,
+    (transformation steps considered are the ones listed in the WKT output, not PROJ pipeline steps)
+12. and for completeness, if two operations are comparable given all the above criteria,
     consider as more relevant the one which has the shorter name, and if they
-    have the same length, consider as more relevant the one whose name comes first in
-    lexicographic order (obviously completely arbitrary, but a sorting
-    algorithm must be able to compare all entries)
+    have the same length, consider as more relevant the one whose name comes last in
+    lexicographic order (e.g. "FOO to BAR (3)" will have higher precedence than
+    "FOO to BAR (2)")
+
+.. note::
+
+    :c:func:`proj_trans`, on the results returned by :c:func:`proj_create_crs_to_crs`,
+    will not necessarily use the operation that
+    is listed in first position due to the above algorithm. :c:func:`proj_trans`
+    has more context, since it has the coordinate to transform, so it can compare
+    this coordinate to the area of use of operations. Typically, the above criteria
+    will favor an operation that has a larger area of use over another one with a
+    smaller area, due to it being more generally applicable. But once coordinates are known,
+    :c:func:`proj_trans` can select an operation with a smaller
+    area of use that applies to the coordinate to transform.
 
 Geodetic/geographic CRS to Geodetic/geographic CRS, without known identifiers
 -----------------------------------------------------------------------------
 
 In a number of situations, the source and/or target CRS do not have an identifier
 (WKT without identifier, PROJ string, ..)
-The first step is to try to find in the ``proj.db`` a CRS of the same nature of
+The first step is to try to find in the :file:`proj.db` a CRS of the same nature of
 the CRS to identify and whose name exactly matches the one provided to the
 :c:func:`createOperations` method. If there is exactly one match and that the CRS are
-"computationnaly" equivalent, then use the code of the CRS for further computations.
+"computationally" equivalent, then use the code of the CRS for further computations.
 
 If this search did not succeed, or if the previous case with known CRS identifiers
 did not result in matches in the database, the search will be based on the
@@ -198,7 +208,7 @@ one can define a geographic 2D CRS (latitude, longitude), a geographic 3D crs
 case, the EPSG dataset has also included two extra definitions corresponding to a
 longitude, latitude, [ellipsoidal height] coordinate system, as found in the official
 French IGNF registry. This IGNF registry has also definitions for a geographic 2D
-CRS (with an extra subtelty with an entry using decimal degree as unit and another
+CRS (with an extra subtlety with an entry using decimal degree as unit and another
 one degree-minute-second), geographic 3D and geocentric.
 
 For EPSG:6258, there are 7 matching (non-deprecated) geodetic CRSs: 
@@ -240,7 +250,7 @@ are equivalent for most purposes.
 
     Candidate operations found: 1
     -------------------------------------
-    Operation n°1:
+    Operation No. 1:
 
     unknown id, axis order change (geographic3D horizontal) + RGF93 to ETRS89 (1) + Conversion from ETRS89 (geog2D) to ETRS89 (geocentric), 0 m, France
 
@@ -340,7 +350,7 @@ following results for the AGD84 to GDA2020 coordinate operations lookup:
 
     Candidate operations found: 4
     -------------------------------------
-    Operation n°1:
+    Operation No. 1:
 
     unknown id, AGD84 to GDA94 (5) + GDA94 to GDA2020 (1), 0.11 m, Australia - AGD84
 
@@ -359,7 +369,7 @@ following results for the AGD84 to GDA2020 coordinate operations lookup:
                    +step +proj=axisswap +order=2,1
 
     -------------------------------------
-    Operation n°2:
+    Operation No. 2:
 
     unknown id, AGD84 to GDA94 (2) + GDA94 to GDA2020 (1), 1.01 m, Australia - AGD84
 
@@ -380,7 +390,7 @@ following results for the AGD84 to GDA2020 coordinate operations lookup:
                    +step +proj=axisswap +order=2,1
 
     -------------------------------------
-    Operation n°3:
+    Operation No. 3:
 
     unknown id, AGD84 to GDA94 (5) + GDA94 to GDA2020 (2), 0.15 m, unknown domain of validity
 
@@ -393,7 +403,7 @@ following results for the AGD84 to GDA2020 coordinate operations lookup:
                    +step +proj=axisswap +order=2,1
 
     -------------------------------------
-    Operation n°4:
+    Operation No. 4:
 
     unknown id, AGD84 to GDA94 (5) + GDA94 to GDA2020 (3), 0.15 m, unknown domain of validity
 
@@ -406,7 +416,7 @@ following results for the AGD84 to GDA2020 coordinate operations lookup:
                    +step +proj=axisswap +order=2,1
 
 One can see that the selected intermediate CRS that has been used is GDA94.
-This is a completely novel behaviour of PROJ 6 as opposed to the logic of PROJ.4 
+This is a completely novel behavior of PROJ 6 as opposed to the logic of PROJ.4 
 where datum transformations implied using EPSG:4326 / WGS 84 has the mandatory
 datum hub. PROJ 6 no longer hardcodes it as the mandatory datum hub, and relies
 on the database to find the appropriate hub(s).
@@ -426,7 +436,7 @@ If one forces the datum hub to be considered to be EPSG:4326, ones gets:
 
     Candidate operations found: 2
     -------------------------------------
-    Operation n°1:
+    Operation No. 1:
 
     unknown id, AGD84 to WGS 84 (7) + Inverse of GDA2020 to WGS 84 (2), 4 m, Australia - AGD84
 
@@ -444,7 +454,7 @@ If one forces the datum hub to be considered to be EPSG:4326, ones gets:
                    +step +proj=axisswap +order=2,1
 
     -------------------------------------
-    Operation n°2:
+    Operation No. 2:
 
     unknown id, AGD84 to WGS 84 (9) + Inverse of GDA2020 to WGS 84 (2), 4 m, Australia - AGD84
 
@@ -471,7 +481,7 @@ techniques, we would only find one non-ballpark operation taking the route:
 
 This is not bad, but the global validity area of use is "Australia - onshore and EEZ",
 whereas GDA94 has a larger area of use.
-There is another road that can be taken by going throug GDA2020 instead of ITRF2008.
+There is another road that can be taken by going through GDA2020 instead of ITRF2008.
 The GDA94 to GDA2020 transformations operate on the respective geographic CRS,
 whereas GDA2020 to WGS 84 (G1762) operate on the geocentric CRS. Consequently,
 GDA2020 cannot be identifier as a hub by a "simple" self-join SQL request on
@@ -482,7 +492,7 @@ conversions between geographic and geocentric CRS to have a consistent concatena
 operation, like the following:
 1. GDA94 to GDA2020 (1): from EPSG
 2. Conversion from GDA2020 (geog2D) to GDA2020 (geocentric): synthetized by PROJ
-3. GDA2020 to WGS 84 (G1762) (1): frmo EPSG
+3. GDA2020 to WGS 84 (G1762) (1): from EPSG
 4. Conversion from WGS 84 (G1762) (geocentric) to WGS 84 (G1762) (geog2D): synthetized by PROJ
 
 Projected CRS to any target CRS
@@ -502,7 +512,7 @@ particular case. Such transformations are done in 2 steps:
 
     Candidate operations found: 1
     -------------------------------------
-    Operation n°1:
+    Operation No. 1:
 
     unknown id, Inverse of UTM zone 31N + Inverse of RGF93 to WGS 84 (1), 1 m, France
 
@@ -511,7 +521,7 @@ particular case. Such transformations are done in 2 steps:
 
 This is implemented by the ``createOperationsDerivedTo`` method
 
-For the symetric case, source CRS to a derived CRS, the above algorithm is applied
+For the symmetric case, source CRS to a derived CRS, the above algorithm is applied
 by switching the source and target CRS, and then inverting the resulting operation(s).
 This is mostly a matter of avoiding to write very similar code twice. This logic
 is also applied to all below cases when considering the transformation between 2 different
@@ -533,7 +543,7 @@ between those:
     $ projinfo -s "NAVD88 height" -t "NAD83(2011)" -o PROJ --spatial-test intersects
     Candidate operations found: 11
     -------------------------------------
-    Operation n°1:
+    Operation No. 1:
 
     INVERSE(DERIVED_FROM(EPSG)):9229, Inverse of NAD83(2011) to NAVD88 height (3), 0.015 m, USA - CONUS - onshore
 
@@ -562,7 +572,7 @@ This is implemented by the ``createOperationsVertToVert`` method
 
     Candidate operations found: 3
     -------------------------------------
-    Operation n°1:
+    Operation No. 1:
 
     unknown id, Inverse of NGVD29 height (ftUS) to NGVD29 depth (ftUS) + NGVD29 height (ftUS) to NGVD29 height (m) + NGVD29 height (m) to NAVD88 height (3), 0.02 m, USA - CONUS east of 89°W - onshore
 
@@ -570,7 +580,7 @@ This is implemented by the ``createOperationsVertToVert`` method
     +proj=pipeline +step +proj=axisswap +order=1,2,-3 +step +proj=unitconvert +z_in=us-ft +z_out=m +step +proj=vgridshift +grids=vertcone.gtx +multiplier=0.001
 
     -------------------------------------
-    Operation n°2:
+    Operation No. 2:
 
     unknown id, Inverse of NGVD29 height (ftUS) to NGVD29 depth (ftUS) + NGVD29 height (ftUS) to NGVD29 height (m) + NGVD29 height (m) to NAVD88 height (2), 0.02 m, USA - CONUS 89°W-107°W - onshore
 
@@ -578,7 +588,7 @@ This is implemented by the ``createOperationsVertToVert`` method
     +proj=pipeline +step +proj=axisswap +order=1,2,-3 +step +proj=unitconvert +z_in=us-ft +z_out=m +step +proj=vgridshift +grids=vertconc.gtx +multiplier=0.001
 
     -------------------------------------
-    Operation n°3:
+    Operation No. 3:
 
     unknown id, Inverse of NGVD29 height (ftUS) to NGVD29 depth (ftUS) + NGVD29 height (ftUS) to NGVD29 height (m) + NGVD29 height (m) to NAVD88 height (1), 0.02 m, USA - CONUS west of 107°W - onshore
 
@@ -660,46 +670,73 @@ CompoundCRS to CompoundCRS
 ---------------------------------------------------------------------------------
 
 There is some similarity with the previous paragraph. We first research the
-vertical transformations between the vertical CRS. If such tranformation has
-a registered interpolation geographic CRS, then it is used. Otherwise we fallback
-to the geographic CRS of the source CRS.
+vertical transformations between the two vertical CRS.
 
-Finally, a 3-level loop to create the final set of operations chaining together:
+1. If there is such a transformation, be it direct, or if both vertical CRS
+   relate to a common intermediate CRS.
+   If it has a registered interpolation geographic CRS, then it is used.
+   Otherwise we fallback to the geographic CRS of the source CRS.
 
-- the horizontal transformation from the source CRS to the interpolation CRS
-- the vertical transformation
-- the horizontal transformation from the interpolation CRS to the target CRS.
+   Finally, a 3-level loop to create the final set of operations chaining together:
 
-This is implemented by the ``createOperationsCompoundToGeog`` method
+   - the horizontal transformation from the source CRS to the interpolation CRS
+   - the vertical transformation
+   - the horizontal transformation from the interpolation CRS to the target CRS.
 
-Example:
+    Example:
 
-.. code-block:: shell
+    .. code-block:: shell
 
-    $ projinfo -s "NAD27 + NGVD29 height (ftUS)" -t "NAD83 + NAVD88 height" --spatial-test intersects --summary
+        $ projinfo -s "NAD27 + NGVD29 height (ftUS)" -t "NAD83 + NAVD88 height" --spatial-test intersects --summary
 
-    Candidate operations found: 20
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (3) + NAD27 to NAD83 (1), 0.17 m, USA - CONUS east of 89°W - onshore
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (2) + NAD27 to NAD83 (1), 0.17 m, USA - CONUS 89°W-107°W - onshore
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (1) + NAD27 to NAD83 (1), 0.17 m, USA - CONUS west of 107°W - onshore
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (3) + NAD27 to NAD83 (3), 1.02 m, unknown domain of validity
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (2) + NAD27 to NAD83 (3), 1.02 m, unknown domain of validity
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (1) + NAD27 to NAD83 (3), 1.02 m, unknown domain of validity
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (3) + NAD27 to NAD83 (5), 1.02 m, unknown domain of validity, at least one grid missing
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (3) + NAD27 to NAD83 (6), 1.52 m, unknown domain of validity, at least one grid missing
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (2) + NAD27 to NAD83 (9), 1.52 m, unknown domain of validity, at least one grid missing
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (1) + NAD27 to NAD83 (9), 1.52 m, unknown domain of validity, at least one grid missing
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (3) + Ballpark geographic offset from NAD27 to NAD83, unknown accuracy, USA - CONUS east of 89°W - onshore, has ballpark transformation
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (2) + Ballpark geographic offset from NAD27 to NAD83, unknown accuracy, USA - CONUS 89°W-107°W - onshore, has ballpark transformation
-    unknown id, NGVD29 height (ftUS) to NAVD88 height (1) + Ballpark geographic offset from NAD27 to NAD83, unknown accuracy, USA - CONUS west of 107°W - onshore, has ballpark transformation
-    unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (1), unknown accuracy, USA - CONUS including EEZ, has ballpark transformation
-    unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (3), unknown accuracy, Canada, has ballpark transformation
-    unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (4), unknown accuracy, Canada - NAD27, has ballpark transformation
-    unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (5), unknown accuracy, Canada - Quebec, has ballpark transformation, at least one grid missing
-    unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (6), unknown accuracy, Canada - Quebec, has ballpark transformation, at least one grid missing
-    unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (9), unknown accuracy, Canada - Saskatchewan, has ballpark transformation, at least one grid missing
-    unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + Ballpark geographic offset from NAD27 to NAD83, unknown accuracy, World, has ballpark transformation
+        Candidate operations found: 20
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (3) + NAD27 to NAD83 (1), 0.17 m, USA - CONUS east of 89°W - onshore
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (2) + NAD27 to NAD83 (1), 0.17 m, USA - CONUS 89°W-107°W - onshore
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (1) + NAD27 to NAD83 (1), 0.17 m, USA - CONUS west of 107°W - onshore
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (3) + NAD27 to NAD83 (3), 1.02 m, unknown domain of validity
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (2) + NAD27 to NAD83 (3), 1.02 m, unknown domain of validity
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (1) + NAD27 to NAD83 (3), 1.02 m, unknown domain of validity
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (3) + NAD27 to NAD83 (5), 1.02 m, unknown domain of validity, at least one grid missing
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (3) + NAD27 to NAD83 (6), 1.52 m, unknown domain of validity, at least one grid missing
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (2) + NAD27 to NAD83 (9), 1.52 m, unknown domain of validity, at least one grid missing
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (1) + NAD27 to NAD83 (9), 1.52 m, unknown domain of validity, at least one grid missing
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (3) + Ballpark geographic offset from NAD27 to NAD83, unknown accuracy, USA - CONUS east of 89°W - onshore, has ballpark transformation
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (2) + Ballpark geographic offset from NAD27 to NAD83, unknown accuracy, USA - CONUS 89°W-107°W - onshore, has ballpark transformation
+        unknown id, NGVD29 height (ftUS) to NAVD88 height (1) + Ballpark geographic offset from NAD27 to NAD83, unknown accuracy, USA - CONUS west of 107°W - onshore, has ballpark transformation
+        unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (1), unknown accuracy, USA - CONUS including EEZ, has ballpark transformation
+        unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (3), unknown accuracy, Canada, has ballpark transformation
+        unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (4), unknown accuracy, Canada - NAD27, has ballpark transformation
+        unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (5), unknown accuracy, Canada - Quebec, has ballpark transformation, at least one grid missing
+        unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (6), unknown accuracy, Canada - Quebec, has ballpark transformation, at least one grid missing
+        unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + NAD27 to NAD83 (9), unknown accuracy, Canada - Saskatchewan, has ballpark transformation, at least one grid missing
+        unknown id, Transformation from NGVD29 height (ftUS) to NAVD88 height (ballpark vertical transformation) + Ballpark geographic offset from NAD27 to NAD83, unknown accuracy, World, has ballpark transformation
 
+
+2. Otherwise, when there is no such transformation, we decompose into 3 steps:
+
+   - transform from the source CRS to the geographic 3D CRS corresponding to it
+   - transform from the geographic 3D CRS corresponding to the source CRS to the
+     geographic 3D CRS corresponding to the target CRS
+   - transform from the geographic 3D CRS corresponding to the target CRS to the
+     target CRS.
+
+    Example:
+
+    .. code-block:: shell
+
+        $  projinfo -s "WGS 84 + EGM96 height" -t "ETRS89 + Belfast height" --spatial-test intersects --summary
+
+        Candidate operations found: 7
+        unknown id, Inverse of WGS 84 to EGM96 height (1) + Inverse of ETRS89 to WGS 84 (1) + ETRS89 to Belfast height (2), 2.014 m, UK - Northern Ireland - onshore
+        unknown id, Inverse of WGS 84 to EGM96 height (1) + Inverse of ETRS89 to WGS 84 (1) + ETRS89 to Belfast height (1), 2.03 m, UK - Northern Ireland - onshore, at least one grid missing
+        unknown id, Inverse of WGS 84 to EGM96 height (1) + Null geographic offset from WGS 84 (geog3D) to WGS 84 (geog2D) + Inverse of OSGB 1936 to WGS 84 (4) + OSGB 1936 to ETRS89 (2) + Null geographic offset from ETRS89 (geog2D) to ETRS89 (geog3D) + ETRS89 to Belfast height (2), 19.044 m, unknown domain of validity
+        unknown id, Inverse of WGS 84 to EGM96 height (1) + Null geographic offset from WGS 84 (geog3D) to WGS 84 (geog2D) + Inverse of OSGB 1936 to WGS 84 (2) + OSGB 1936 to ETRS89 (2) + Null geographic offset from ETRS89 (geog2D) to ETRS89 (geog3D) + ETRS89 to Belfast height (2), 11.044 m, unknown domain of validity
+        unknown id, Inverse of WGS 84 to EGM96 height (1) + Null geographic offset from WGS 84 (geog3D) to WGS 84 (geog2D) + Inverse of TM75 to WGS 84 (2) + TM75 to ETRS89 (3) + Null geographic offset from ETRS89 (geog2D) to ETRS89 (geog3D) + ETRS89 to Belfast height (2), 2.424 m, UK - Northern Ireland - onshore, at least one grid missing
+        unknown id, Inverse of WGS 84 to EGM96 height (1) + Null geographic offset from WGS 84 (geog3D) to WGS 84 (geog2D) + Inverse of TM75 to WGS 84 (2) + TM75 to ETRS89 (3) + Null geographic offset from ETRS89 (geog2D) to ETRS89 (geog3D) + ETRS89 to Belfast height (1), 2.44 m, UK - Northern Ireland - onshore, at least one grid missing
+        unknown id, Inverse of WGS 84 to EGM96 height (1) + Null geographic offset from WGS 84 (geog3D) to WGS 84 (geog2D) + Inverse of OSGB 1936 to WGS 84 (4) + OSGB 1936 to ETRS89 (2) + Null geographic offset from ETRS89 (geog2D) to ETRS89 (geog3D) + ETRS89 to Belfast height (1), 19.06 m, unknown domain of validity, at least one grid missing
+
+
+This is implemented by the ``createOperationsCompoundToCompound`` method
 
 When the source or target CRS is a BoundCRS
 ---------------------------------------------------------------------------------
@@ -736,7 +773,7 @@ Example:
 
     Candidate operations found: 1
     -------------------------------------
-    Operation n°1:
+    Operation No. 1:
 
     unknown id, Inverse of unknown + Transformation from unknown to WGS84 + Inverse of ETRS89 to WGS 84 (1), unknown accuracy, Europe - ETRS89
 

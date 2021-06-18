@@ -34,7 +34,7 @@ import requests
 import sys
 
 # url = "http://librairies.ign.fr/geoportail/resources/IGNF.xml"
-url = "https://geodesie.ign.fr/contenu/fichiers/IGNF.v3.1.0.xml"
+url = "https://raw.githubusercontent.com/rouault/proj-resources/master/IGNF.v3.1.0.xml"
 
 if len(sys.argv) not in (1, 2) or (len(sys.argv) == 2 and sys.argv[1].startswith('-')):
     print('Usage: build_db_create_ignf.py [path_to_IGNF.xml]')
@@ -144,8 +144,7 @@ def ingest_datums(root, all_sql, mapEllpsId, mapPmId):
                 ellpsCode = extract_id_from_href(node.find('usesEllipsoid').attrib['href'])
                 assert ellpsCode in mapEllpsId
 
-                # We sheat by using EPSG:1262 = World for area of use
-                sql = """INSERT INTO "geodetic_datum" VALUES('IGNF','%s','%s',NULL,NULL,'%s','%s','%s','%s','EPSG','1262',NULL,0);""" % (id, names[0], mapEllpsId[ellpsCode][0], mapEllpsId[ellpsCode][1], mapPmId[pmCode][0], mapPmId[pmCode][1])
+                sql = """INSERT INTO "geodetic_datum" VALUES('IGNF','%s','%s',NULL,'%s','%s','%s','%s',NULL,NULL,NULL,0);""" % (id, names[0], mapEllpsId[ellpsCode][0], mapEllpsId[ellpsCode][1], mapPmId[pmCode][0], mapPmId[pmCode][1])
                 all_sql.append(sql)
 
                 mapDatumId[id] = ('IGNF', id)
@@ -155,7 +154,7 @@ def ingest_datums(root, all_sql, mapEllpsId, mapPmId):
                 id = node.attrib['id']
                 names = [_name.text for _name in node.iter('name')]
 
-                sql = """INSERT INTO "vertical_datum" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262',NULL,0);"""% (id, names[0])
+                sql = """INSERT INTO "vertical_datum" VALUES('IGNF','%s','%s',NULL,NULL,NULL,NULL,0);"""% (id, names[0])
                 all_sql.append(sql)
 
                 mapVerticalDatumId[id] = ('IGNF', id)
@@ -169,31 +168,41 @@ mapEllpsId = ingest_ellipsoids(root, all_sql)
 mapPmId = ingest_prime_meridians(root, all_sql)
 mapDatumId, mapVerticalDatumId, invalidDatumId = ingest_datums(root, all_sql, mapEllpsId, mapPmId)
 
-areaOfUseMap = {}
+extentMap = {}
 
-def get_area_of_use(domainOfValidity):
+def get_extent_auth_name_code(domainOfValidity):
     extent = domainOfValidity.find('EX_Extent')
     desc = extent.find('description').find('CharacterString').text
     if desc is None:
         return 'EPSG', '1262'
 
-    if desc in areaOfUseMap:
-        return areaOfUseMap[desc]
+    if desc in extentMap:
+        return extentMap[desc]
 
     geographicElement = extent.find('geographicElement')
     if geographicElement is None:
         print('No geographicElement for area of use ' + desc)
         return 'EPSG', '1262'
 
-    code = str(len(areaOfUseMap) + 1)
-    areaOfUseMap[desc] = ['IGNF', code ]
+    code = str(len(extentMap) + 1)
+    extentMap[desc] = ['IGNF', code ]
     EX_GeographicBoundingBox = geographicElement.find('EX_GeographicBoundingBox')
     south = EX_GeographicBoundingBox.find('southBoundLatitude').find('Decimal').text
     west = EX_GeographicBoundingBox.find('westBoundLongitude').find('Decimal').text
     north = EX_GeographicBoundingBox.find('northBoundLatitude').find('Decimal').text
     east = EX_GeographicBoundingBox.find('eastBoundLongitude').find('Decimal').text
-    all_sql.append("""INSERT INTO "area" VALUES('IGNF','%s','%s','%s',%s,%s,%s,%s,0);""" % (code, escape_literal(desc), escape_literal(desc), south, north, west, east))
-    return areaOfUseMap[desc]
+    all_sql.append("""INSERT INTO "extent" VALUES('IGNF','%s','%s','%s',%s,%s,%s,%s,0);""" % (code, escape_literal(desc), escape_literal(desc), south, north, west, east))
+    return extentMap[desc]
+
+scopeMap = {}
+def get_scope_auth_name_code(scope):
+    if scope in scopeMap:
+        return scopeMap[scope]
+
+    code = str(len(scopeMap)+1)
+    scopeMap[scope] = ['IGNF', code]
+    all_sql.append("""INSERT INTO scope VALUES('IGNF','%s','%s',0);""" % (code, scope))
+    return scopeMap[scope]
 
 mapCrsId = {}
 mapGeocentricId = {}
@@ -221,12 +230,16 @@ for node in root.iterfind('.//GeocentricCRS'):
         continue
     assert datumCode in mapDatumId, (id, name, datumCode)
 
-    area_of_use = get_area_of_use(node.find('domainOfValidity'))
+    extent_auth_and_code = get_extent_auth_name_code(node.find('domainOfValidity'))
+    scope = node.find('scope').text
+    scope_auth_and_code = get_scope_auth_name_code(scope)
 
     #sql = """INSERT INTO "crs" VALUES('IGNF','%s','geocentric');""" % (id)
     #all_sql.append(sql)
 
-    sql = """INSERT INTO "geodetic_crs" VALUES('IGNF','%s','%s',NULL,NULL,'geocentric','EPSG','6500','%s','%s','%s','%s',NULL,0);""" % (id, name, mapDatumId[datumCode][0], mapDatumId[datumCode][1], area_of_use[0], area_of_use[1])
+    sql = """INSERT INTO "geodetic_crs" VALUES('IGNF','%s','%s',NULL,'geocentric','EPSG','6500','%s','%s',NULL,0);""" % (id, name, mapDatumId[datumCode][0], mapDatumId[datumCode][1])
+    all_sql.append(sql)
+    sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','geodetic_crs','IGNF','%s','%s','%s','%s','%s');""" % (id, id, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
     all_sql.append(sql)
 
     mapCrsId[id] = ('IGNF', id)
@@ -242,10 +255,12 @@ for node in root.iterfind('.//GeocentricCRS'):
         #sql = """INSERT INTO "crs" VALUES('IGNF','%s','geocentric'); -- alias of %s""" % (alias, id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "geodetic_crs" VALUES('IGNF','%s','%s',NULL,NULL,'geocentric','EPSG','6500','%s','%s','%s','%s',NULL,0);""" % (alias, name, mapDatumId[datumCode][0], mapDatumId[datumCode][1], area_of_use[0], area_of_use[1])
+        sql = """INSERT INTO "geodetic_crs" VALUES('IGNF','%s','%s',NULL,'geocentric','EPSG','6500','%s','%s',NULL,0);""" % (alias, name, mapDatumId[datumCode][0], mapDatumId[datumCode][1])
+        all_sql.append(sql)
+        sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','geodetic_crs','IGNF','%s','%s','%s','%s','%s');""" % (alias, alias, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
         all_sql.append(sql)
 
-    key = str((mapDatumId[datumCode], area_of_use))
+    key = str((mapDatumId[datumCode], extent_auth_and_code))
     assert key not in mapDatumAndAreaToGeocentricId, (id, name)
     mapDatumAndAreaToGeocentricId[key] = ('IGNF', id)
     mapGeocentricIdToDatumAndArea[id] = key
@@ -266,7 +281,9 @@ for node in root.iterfind('.//GeographicCRS'):
         continue
     assert datumCode in mapDatumId, (id, name, datumCode)
 
-    area_of_use = get_area_of_use(node.find('domainOfValidity'))
+    extent_auth_and_code = get_extent_auth_name_code(node.find('domainOfValidity'))
+    scope = node.find('scope').text
+    scope_auth_and_code = get_scope_auth_name_code(scope)
 
     csCode = None
     type = 'geographic 2D'
@@ -281,7 +298,9 @@ for node in root.iterfind('.//GeographicCRS'):
     #sql = """INSERT INTO "crs" VALUES('IGNF','%s','%s');""" % (id, type)
     #all_sql.append(sql)
 
-    sql = """INSERT INTO "geodetic_crs" VALUES('IGNF','%s','%s',NULL,NULL,'%s','EPSG','%s','%s','%s','%s','%s',NULL,0);""" % (id, name, type, csCode, mapDatumId[datumCode][0], mapDatumId[datumCode][1], area_of_use[0], area_of_use[1])
+    sql = """INSERT INTO "geodetic_crs" VALUES('IGNF','%s','%s',NULL,'%s','EPSG','%s','%s','%s',NULL,0);""" % (id, name, type, csCode, mapDatumId[datumCode][0], mapDatumId[datumCode][1])
+    all_sql.append(sql)
+    sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','geodetic_crs','IGNF','%s','%s','%s','%s','%s');""" % (id, id, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
     all_sql.append(sql)
 
     if id == 'WGS84G':
@@ -295,12 +314,14 @@ for node in root.iterfind('.//GeographicCRS'):
         #sql = """INSERT INTO "crs" VALUES('IGNF','%s','%s'); -- alias of %s""" % (alias, type, id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "geodetic_crs" VALUES('IGNF','%s','%s',NULL,NULL,'%s','EPSG','%s','%s','%s','%s','%s',NULL,0);""" % (alias, name, type, csCode, mapDatumId[datumCode][0], mapDatumId[datumCode][1], area_of_use[0], area_of_use[1])
+        sql = """INSERT INTO "geodetic_crs" VALUES('IGNF','%s','%s',NULL,'%s','EPSG','%s','%s','%s',NULL,0);""" % (alias, name, type, csCode, mapDatumId[datumCode][0], mapDatumId[datumCode][1])
+        all_sql.append(sql)
+        sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','geodetic_crs','IGNF','%s','%s','%s','%s','%s');""" % (alias, alias, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
         all_sql.append(sql)
 
     mapCrsId[id] = ('IGNF', id)
-    mapGeographicId[id] = ('IGNF', id)
-    key = str((mapDatumId[datumCode], area_of_use))
+    mapGeographicId[id] = ('IGNF', id, type)
+    key = str((mapDatumId[datumCode], extent_auth_and_code))
     if key in mapDatumAndAreaToGeographicId:
         #print('Adding ' + id + ' to ' + str(mapDatumAndAreaToGeographicId[key]))
         mapDatumAndAreaToGeographicId[key].append(id)
@@ -318,12 +339,14 @@ for node in root.iterfind('.//GeographicCRS'):
         #sql = """INSERT INTO "crs" VALUES('IGNF','%s','%s');""" % (id, type)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "geodetic_crs" VALUES('IGNF','%s','%s',NULL,NULL,'%s','EPSG','%s','%s','%s','%s','%s',NULL,0);""" % (id, name, type, csCode, mapDatumId[datumCode][0], mapDatumId[datumCode][1], area_of_use[0], area_of_use[1])
+        sql = """INSERT INTO "geodetic_crs" VALUES('IGNF','%s','%s',NULL,'%s','EPSG','%s','%s','%s',NULL,0);""" % (id, name, type, csCode, mapDatumId[datumCode][0], mapDatumId[datumCode][1])
+        all_sql.append(sql)
+        sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','geodetic_crs','IGNF','%s','%s','%s','%s','%s');""" % (id, id, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
         all_sql.append(sql)
 
         mapCrsId[id] = ('IGNF', id)
-        mapGeographicId[id] = ('IGNF', id)
-        key = str((mapDatumId[datumCode], area_of_use))
+        mapGeographicId[id] = ('IGNF', id, type)
+        key = str((mapDatumId[datumCode], extent_auth_and_code))
         if key in mapDatumAndAreaToGeographicId:
             #print('Adding ' + id + ' to ' + str(mapDatumAndAreaToGeographicId[key]))
             mapDatumAndAreaToGeographicId[key].append(id)
@@ -351,9 +374,13 @@ for node in root.iterfind('.//VerticalCRS'):
     #sql = """INSERT INTO "crs" VALUES('IGNF','%s','vertical');""" % (id_modified)
     #all_sql.append(sql)
 
-    area_of_use = get_area_of_use(node.find('domainOfValidity'))
+    extent_auth_and_code = get_extent_auth_name_code(node.find('domainOfValidity'))
+    scope = node.find('scope').text
+    scope_auth_and_code = get_scope_auth_name_code(scope)
 
-    sql = """INSERT INTO "vertical_crs" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','6499','%s','%s','%s','%s',0);""" % (id_modified, name, mapVerticalDatumId[datumCode][0], mapVerticalDatumId[datumCode][1], area_of_use[0], area_of_use[1])
+    sql = """INSERT INTO "vertical_crs" VALUES('IGNF','%s','%s',NULL,'EPSG','6499','%s','%s',0);""" % (id_modified, name, mapVerticalDatumId[datumCode][0], mapVerticalDatumId[datumCode][1])
+    all_sql.append(sql)
+    sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','vertical_crs','IGNF','%s','%s','%s','%s','%s');""" % (id_modified, id_modified, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
     all_sql.append(sql)
 
     if len(names) >= 2 and names[1].startswith('http://registre.ign.fr/ign/IGNF/crs/IGNF/'):
@@ -366,7 +393,11 @@ for node in root.iterfind('.//VerticalCRS'):
 mapGridURLs = {
      # France metropole
     'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/RAF09.mnt':
-        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/metropole/RAF09.mnt',
+        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/anciennes/RAF09.mnt',
+
+     # France metropole
+    'https://geodesie.ign.fr/contenu/fichiers/documentation/grilles/metropole/RAF18.mnt':
+        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/anciennes/RAF18.mnt',
 
     # Corse
     'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/RAC09.mnt':
@@ -426,26 +457,26 @@ mapGridURLs = {
 
     # Guadeloupe WGS84
     'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggg00.txt':
-        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggg00v2.mnt',
+        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/anciennes/ggg00v2.txt',
 
     # Les Saintes WGS84
     'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggg00_ls.txt':
-        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggg00_lsv2.mnt',
+        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/anciennes/ggg00_lsv2.txt',
 
     'ggg00_lsv2.mnt':
-        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggg00_lsv2.mnt',
+        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/anciennes/ggg00_lsv2.txt',
 
     # Martinique WGS84
     'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggm00.txt':
-        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggm00v2.mnt',
+        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/anciennes/ggm00v2.txt',
 
     # Saint Barthelemy WGS84
     'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggg00_sb.txt':
-        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggg00_sbv2.mnt',
+        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/anciennes/ggg00_sbv2.txt',
 
     # Saint Martin WGS84
     'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggg00_sm.txt':
-        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggg00_smv2.mnt',
+        'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/anciennes/ggg00_smv2.txt',
 
     # La Desirade WGS84
     'http://geodesie.ign.fr/contenu/fichiers/documentation/grilles/outremer/ggg00_ld.txt':
@@ -487,9 +518,9 @@ for node in root.iterfind('.//Transformation'):
         continue
 
     operation_version = node.find('operationVersion').text
-    scope = node.find('scope').text
 
-    area_of_use = get_area_of_use(node.find('domainOfValidity'))
+    extent_auth_and_code = get_extent_auth_name_code(node.find('domainOfValidity'))
+    scope_auth_and_code = get_scope_auth_name_code(node.find('scope').text)
 
     usesMethod = extract_id_from_href(node.find('usesMethod').attrib['href'])
     if usesMethod in ('Geographic3DtoGravityRelatedHeight_IGN'):
@@ -505,7 +536,7 @@ for node in root.iterfind('.//Transformation'):
             print('Fixing URL of ' + filename + ' to ' + mapGridURLs[filename])
             filename = mapGridURLs[filename]
 
-        if not filename.endswith('RAF09.mnt') and not filename.endswith('ggspm06v1.mnt'): # no longer available
+        if not filename.endswith('ggspm06v1.mnt'): # no longer available
             r = requests.head(filename, allow_redirects = True  )
             if r.status_code not in (200, 302):
                 assert False, (r.status_code, id, name, filename)
@@ -520,7 +551,9 @@ for node in root.iterfind('.//Transformation'):
         name_components = name.split(' vers ')
         name_inverted = name_components[1] + ' vers ' + name_components[0]
 
-        sql = """INSERT INTO "grid_transformation" VALUES('IGNF','%s','%s',NULL,'%s','EPSG','9664','Geographic3D to GravityRelatedHeight (IGN1997)','%s','%s','%s','%s','%s','%s',NULL,'EPSG','8666','Geoid (height correction) model file','%s',NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);""" % (id, name_inverted, scope, mapCrsId[targetCRS][0], mapCrsId[targetCRS][1], mapCrsId[sourceCRS][0], mapCrsId[sourceCRS][1], area_of_use[0], area_of_use[1], filename, operation_version)
+        sql = """INSERT INTO "grid_transformation" VALUES('IGNF','%s','%s',NULL,'EPSG','9664','Geographic3D to GravityRelatedHeight (IGN1997)','%s','%s','%s','%s',NULL,'EPSG','8666','Geoid (height correction) model file','%s',NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);""" % (id, name_inverted, mapCrsId[targetCRS][0], mapCrsId[targetCRS][1], mapCrsId[sourceCRS][0], mapCrsId[sourceCRS][1], filename, operation_version)
+        all_sql.append(sql)
+        sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','grid_transformation','IGNF','%s','%s','%s','%s','%s');""" % (id, id, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
         all_sql.append(sql)
 
         continue
@@ -547,7 +580,9 @@ for node in root.iterfind('.//Transformation'):
                 #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','other_transformation');""" % custom_id
                 #all_sql.append(sql)
 
-                sql = """INSERT INTO "other_transformation" VALUES('IGNF','%s','%s',NULL,'%s','EPSG','9601','Longitude rotation','%s','%s','%s','%s','%s','%s',0.0,'EPSG','8602','Longitude offset',2.5969213,'EPSG','9105',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);"""% (custom_id, name, scope, src[0], src[1], target[0], target[1], area_of_use[0], area_of_use[1], operation_version)
+                sql = """INSERT INTO "other_transformation" VALUES('IGNF','%s','%s',NULL,'EPSG','9601','Longitude rotation','%s','%s','%s','%s',0.0,'EPSG','8602','Longitude offset',2.5969213,'EPSG','9105',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);"""% (custom_id, name, src[0], src[1], target[0], target[1], operation_version)
+                all_sql.append(sql)
+                sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','other_transformation','IGNF','%s','%s','%s','%s','%s');""" % (custom_id, custom_id, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
                 all_sql.append(sql)
 
         continue
@@ -575,7 +610,9 @@ for node in root.iterfind('.//Transformation'):
                 #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','grid_transformation');""" % (custom_id)
                 #all_sql.append(sql)
 
-                sql = """INSERT INTO "grid_transformation" VALUES('IGNF','%s','%s',NULL,'%s','EPSG','9615','NTv2','%s','%s','%s','%s','%s','%s',NULL,'EPSG','8656','Latitude and longitude difference file','ntf_r93.gsb',NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);""" % (custom_id, name, scope, src[0], src[1], target[0], target[1], area_of_use[0], area_of_use[1], operation_version)
+                sql = """INSERT INTO "grid_transformation" VALUES('IGNF','%s','%s',NULL,'EPSG','9615','NTv2','%s','%s','%s','%s',NULL,'EPSG','8656','Latitude and longitude difference file','ntf_r93.gsb',NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);""" % (custom_id, name, src[0], src[1], target[0], target[1], operation_version)
+                all_sql.append(sql)
+                sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','grid_transformation','IGNF','%s','%s','%s','%s','%s');""" % (custom_id, custom_id, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
                 all_sql.append(sql)
 
         continue
@@ -591,7 +628,9 @@ for node in root.iterfind('.//Transformation'):
         uom = paramValue.find('value').attrib['uom']
         assert uom == 'm'
 
-        sql = """INSERT INTO "other_transformation" VALUES('IGNF','%s','%s',NULL,'%s','EPSG','9616','Vertical Offset','%s','%s','%s','%s','%s','%s',NULL,'EPSG','8603','Vertical Offset',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);"""% (id, name, scope, mapCrsId[sourceCRS][0], mapCrsId[sourceCRS][1], mapCrsId[targetCRS][0], mapCrsId[targetCRS][1], area_of_use[0], area_of_use[1], value, operation_version)
+        sql = """INSERT INTO "other_transformation" VALUES('IGNF','%s','%s',NULL,'EPSG','9616','Vertical Offset','%s','%s','%s','%s',NULL,'EPSG','8603','Vertical Offset',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);"""% (id, name, mapCrsId[sourceCRS][0], mapCrsId[sourceCRS][1], mapCrsId[targetCRS][0], mapCrsId[targetCRS][1], value, operation_version)
+        all_sql.append(sql)
+        sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','other_transformation','IGNF','%s','%s','%s','%s','%s');""" % (id, id, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
         all_sql.append(sql)
 
         continue
@@ -626,6 +665,9 @@ for node in root.iterfind('.//Transformation'):
         method_geog_code = "'9603'"
         method_geog_name = "'Geocentric translations (geog2D domain)'"
 
+        method_geog_3d_code = "'1035'"
+        method_geog_3d_name = "'Geocentric translations (geog3D domain)'"
+
     else:
         s = vals[3].find('ParameterValue').find('value').text
         assert vals[3].find('ParameterValue').find('value').attrib['uom'] == 'UNITE'
@@ -650,6 +692,9 @@ for node in root.iterfind('.//Transformation'):
         method_geog_code = "'9606'"
         method_geog_name = "'Position Vector transformation (geog2D domain)'"
 
+        method_geog_3d_code = "'1037'"
+        method_geog_3d_name = "'Geocentric translations (geog3D domain)'"
+
     for src in get_alias_of(sourceCRS):
         for target in get_alias_of(targetCRS):
 
@@ -660,7 +705,9 @@ for node in root.iterfind('.//Transformation'):
             #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','helmert_transformation');""" % (custom_id)
             #all_sql.append(sql)
 
-            sql = """INSERT INTO "helmert_transformation" VALUES('IGNF','%s','%s',NULL,'%s','EPSG',%s,%s,'%s','%s','%s','%s','%s','%s',NULL,%s,%s,%s,'EPSG','9001',%s,%s,%s,%s,%s,%s,%s, %s,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);""" % (custom_id, name, scope, method_code, method_name, src[0], src[1], target[0], target[1], area_of_use[0], area_of_use[1], x, y, z, rx, ry, rz, r_uom_auth_name, r_uom_code, s, s_uom_auth_name, s_uom_code, operation_version)
+            sql = """INSERT INTO "helmert_transformation" VALUES('IGNF','%s','%s',NULL,'EPSG',%s,%s,'%s','%s','%s','%s',NULL,%s,%s,%s,'EPSG','9001',%s,%s,%s,%s,%s, %s,%s,%s,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);""" % (custom_id, name, method_code, method_name, src[0], src[1], target[0], target[1], x, y, z, rx, ry, rz, r_uom_auth_name, r_uom_code, s, s_uom_auth_name, s_uom_code, operation_version)
+            all_sql.append(sql)
+            sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','helmert_transformation','IGNF','%s','%s','%s','%s','%s');""" % (custom_id, custom_id, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
             all_sql.append(sql)
 
 
@@ -675,6 +722,11 @@ for node in root.iterfind('.//Transformation'):
     for sourceGeogId in sourceGeogIdAr:
         for targetGeogId in targetGeogIdAr:
 
+            # Check type
+            type = mapGeographicId[sourceGeogId][2]
+            if type != mapGeographicId[targetGeogId][2]:
+                continue
+
             for src in get_alias_of(sourceGeogId):
                 for target in get_alias_of(targetGeogId):
 
@@ -682,7 +734,9 @@ for node in root.iterfind('.//Transformation'):
                     #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','helmert_transformation');""" % (id_geog)
                     #all_sql.append(sql)
 
-                    sql = """INSERT INTO "helmert_transformation" VALUES('IGNF','%s','%s',NULL,'%s','EPSG',%s,%s,'%s','%s','%s','%s','%s','%s',NULL,%s,%s,%s,'EPSG','9001',%s,%s,%s,%s,%s,%s,%s, %s,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);""" % (id_geog, name, scope, method_geog_code, method_geog_name, src[0], src[1], target[0], target[1], area_of_use[0], area_of_use[1], x, y, z, rx, ry, rz, r_uom_auth_name, r_uom_code, s, s_uom_auth_name, s_uom_code, operation_version)
+                    sql = """INSERT INTO "helmert_transformation" VALUES('IGNF','%s','%s',NULL,'EPSG',%s,%s,'%s','%s','%s','%s',NULL,%s,%s,%s,'EPSG','9001',%s,%s,%s,%s,%s,%s,%s, %s,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'%s',0);""" % (id_geog, name, method_geog_code if type == 'geographic 2D' else method_geog_3d_code, method_geog_name if type == 'geographic 2D' else method_geog_3d_name, src[0], src[1], target[0], target[1], x, y, z, rx, ry, rz, r_uom_auth_name, r_uom_code, s, s_uom_auth_name, s_uom_code, operation_version)
+                    all_sql.append(sql)
+                    sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','helmert_transformation','IGNF','%s','%s','%s','%s','%s');""" % (id_geog, id_geog, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
                     all_sql.append(sql)
 
                     if src[1] == 'NTFG':
@@ -694,7 +748,9 @@ for node in root.iterfind('.//Transformation'):
                             #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','concatenated_operation');""" % (id_concat)
                             #all_sql_concat.append(sql)
 
-                            sql = """INSERT INTO "concatenated_operation" VALUES('IGNF','%s','Nouvelle Triangulation Francaise Paris grades to %s',NULL,'%s','IGNF','%s','%s','%s','%s','%s',NULL,'%s',0);""" % (id_concat, target[1], scope, NTFPalias, target[0], target[1], area_of_use[0], area_of_use[1], operation_version)
+                            sql = """INSERT INTO "concatenated_operation" VALUES('IGNF','%s','Nouvelle Triangulation Francaise Paris grades to %s',NULL,'IGNF','%s','%s','%s',NULL,'%s',0);""" % (id_concat, target[1],  NTFPalias, target[0], target[1], operation_version)
+                            all_sql_concat.append(sql)
+                            sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','concatenated_operation','IGNF','%s','%s','%s','%s','%s');""" % (id_concat, id_concat, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
                             all_sql_concat.append(sql)
 
                             sql = """INSERT INTO "concatenated_operation_step" VALUES('IGNF','%s',1,'IGNF','%s');""" % (id_concat, idFirstOp)
@@ -767,7 +823,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262','EPSG','1024','Popular Visualisation Pseudo Mercator','EPSG','8801','Latitude of natural origin',0.0,'EPSG','9102','EPSG','8802','Longitude of natural origin',0.0,'EPSG','9102','EPSG','8806','False easting',0.0,'EPSG','9001','EPSG','8807','False northing',0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name)
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'EPSG','1024','Popular Visualisation Pseudo Mercator','EPSG','8801','Latitude of natural origin',0.0,'EPSG','9102','EPSG','8802','Longitude of natural origin',0.0,'EPSG','9102','EPSG','8806','False easting',0.0,'EPSG','9001','EPSG','8807','False northing',0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name)
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -785,7 +841,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262','EPSG','1028','Equidistant Cylindrical','EPSG','8823','Latitude of 1st standard parallel',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_ts'], d['lon_0'], d['x_0'], d['y_0'])
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'EPSG','1028','Equidistant Cylindrical','EPSG','8823','Latitude of 1st standard parallel',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_ts'], d['lon_0'], d['x_0'], d['y_0'])
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -802,7 +858,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1886','EPSG','9807','Transverse Mercator','EPSG','8801','Latitude of natural origin',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'EPSG','9807','Transverse Mercator','EPSG','8801','Latitude of natural origin',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -821,7 +877,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262','EPSG','9827','Bonne','EPSG','8801','Latitude of natural origin',%s,'EPSG','9105','EPSG','8802','Longitude of natural origin',%s,'EPSG','9105','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['x_0'], d['y_0'])
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'EPSG','9827','Bonne','EPSG','8801','Latitude of natural origin',%s,'EPSG','9105','EPSG','8802','Longitude of natural origin',%s,'EPSG','9105','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['x_0'], d['y_0'])
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -839,7 +895,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262','EPSG','9820','Lambert Azimuthal Equal Area','EPSG','8801','Latitude of natural origin',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['x_0'], d['y_0'])
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'EPSG','9820','Lambert Azimuthal Equal Area','EPSG','8801','Latitude of natural origin',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['x_0'], d['y_0'])
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -857,7 +913,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262','EPSG','9802','Lambert Conic Conformal (2SP)','EPSG','8821','Latitude of false origin',%s,'EPSG','9102','EPSG','8822','Longitude of false origin',%s,'EPSG','9102','EPSG','8823','Latitude of 1st standard parallel',%s,'EPSG','9102','EPSG','8824','Latitude of 2nd standard parallel',%s,'EPSG','9102','EPSG','8826','Easting at false origin',%s,'EPSG','9001','EPSG','8827','Northing at false origin',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['lat_1'], d['lat_2'], d['x_0'], d['y_0'])
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'EPSG','9802','Lambert Conic Conformal (2SP)','EPSG','8821','Latitude of false origin',%s,'EPSG','9102','EPSG','8822','Longitude of false origin',%s,'EPSG','9102','EPSG','8823','Latitude of 1st standard parallel',%s,'EPSG','9102','EPSG','8824','Latitude of 2nd standard parallel',%s,'EPSG','9102','EPSG','8826','Easting at false origin',%s,'EPSG','9001','EPSG','8827','Northing at false origin',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['lat_1'], d['lat_2'], d['x_0'], d['y_0'])
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -875,7 +931,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262','EPSG','9804','Mercator (variant A)','EPSG','8801','Latitude of natural origin',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'EPSG','9804','Mercator (variant A)','EPSG','8801','Latitude of natural origin',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -893,7 +949,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262','EPSG','9801','Lambert Conic Conformal (1SP)','EPSG','8801','Latitude of natural origin',%s,'EPSG','9105','EPSG','8802','Longitude of natural origin',%s,'EPSG','9105','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'EPSG','9801','Lambert Conic Conformal (1SP)','EPSG','8801','Latitude of natural origin',%s,'EPSG','9105','EPSG','8802','Longitude of natural origin',%s,'EPSG','9105','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -911,7 +967,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262','EPSG','9801','Lambert Conic Conformal (1SP)','EPSG','8801','Latitude of natural origin',%s,'EPSG','9105','EPSG','8802','Longitude of natural origin',%s,'EPSG','9105','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'EPSG','9801','Lambert Conic Conformal (1SP)','EPSG','8801','Latitude of natural origin',%s,'EPSG','9105','EPSG','8802','Longitude of natural origin',%s,'EPSG','9105','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -930,7 +986,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262','PROJ','gstm','Gauss Schreiber Transverse Mercator','EPSG','8801','Latitude of natural origin',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'PROJ','gstm','Gauss Schreiber Transverse Mercator','EPSG','8801','Latitude of natural origin',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -950,7 +1006,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262','EPSG','9810','Polar Stereographic (variant A)','EPSG','8801','Latitude of natural origin',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'EPSG','9810','Polar Stereographic (variant A)','EPSG','8801','Latitude of natural origin',%s,'EPSG','9102','EPSG','8802','Longitude of natural origin',%s,'EPSG','9102','EPSG','8805','Scale factor at natural origin',%s,'EPSG','9201','EPSG','8806','False easting',%s,'EPSG','9001','EPSG','8807','False northing',%s,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id, name, d['lat_0'], d['lon_0'], d['k_0'], d['x_0'], d['y_0'])
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -970,7 +1026,7 @@ for node in root.iterfind('.//Conversion'):
         #sql = """INSERT INTO "coordinate_operation" VALUES('IGNF','%s','conversion');""" % (id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','1262','PROJ','mill','PROJ mill',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id,name)
+        sql = """INSERT INTO "conversion" VALUES('IGNF','%s','%s',NULL,'PROJ','mill','PROJ mill',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (id,name)
         all_sql.append(sql)
 
         mapConversionId[id] = ('IGNF', id)
@@ -1003,7 +1059,9 @@ for node in root.iterfind('.//ProjectedCRS'):
         continue
     assert definedByConversion in mapConversionId, (id, name, definedByConversion)
 
-    area_of_use = get_area_of_use(node.find('domainOfValidity'))
+    extent_auth_and_code = get_extent_auth_name_code(node.find('domainOfValidity'))
+    scope = node.find('scope').text
+    scope_auth_and_code = get_scope_auth_name_code(scope)
 
     #sql = """INSERT INTO "crs" VALUES('IGNF','%s','projected');""" % (id, )
     #all_sql.append(sql)
@@ -1014,7 +1072,9 @@ for node in root.iterfind('.//ProjectedCRS'):
     if usesCartesianCS == 'TYP_CRG34':
         cs_code = 4530
 
-    sql = """INSERT INTO "projected_crs" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','%s','%s','%s','%s','%s','%s','%s',NULL,0);""" % (id,name,cs_code,mapGeographicId[baseGeographicCRS][0], mapGeographicId[baseGeographicCRS][1],mapConversionId[definedByConversion][0], mapConversionId[definedByConversion][1], area_of_use[0], area_of_use[1])
+    sql = """INSERT INTO "projected_crs" VALUES('IGNF','%s','%s',NULL,'EPSG','%s','%s','%s','%s','%s',NULL,0);""" % (id,name,cs_code,mapGeographicId[baseGeographicCRS][0], mapGeographicId[baseGeographicCRS][1],mapConversionId[definedByConversion][0], mapConversionId[definedByConversion][1])
+    all_sql.append(sql)
+    sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','projected_crs','IGNF','%s','%s','%s','%s','%s');""" % (id, id, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
     all_sql.append(sql)
 
     if len(names) >= 2 and names[1].startswith('http://registre.ign.fr/ign/IGNF/crs/IGNF/'):
@@ -1024,7 +1084,9 @@ for node in root.iterfind('.//ProjectedCRS'):
         #sql = """INSERT INTO "crs" VALUES('IGNF','%s','projected'); -- alias of %s""" % (alias, id)
         #all_sql.append(sql)
 
-        sql = """INSERT INTO "projected_crs" VALUES('IGNF','%s','%s',NULL,NULL,'EPSG','%s','%s','%s','%s','%s','%s','%s',NULL,0);""" % (alias,name,cs_code,mapGeographicId[baseGeographicCRS][0], mapGeographicId[baseGeographicCRS][1],mapConversionId[definedByConversion][0], mapConversionId[definedByConversion][1], area_of_use[0], area_of_use[1])
+        sql = """INSERT INTO "projected_crs" VALUES('IGNF','%s','%s',NULL,'EPSG','%s','%s','%s','%s','%s',NULL,0);""" % (alias,name,cs_code,mapGeographicId[baseGeographicCRS][0], mapGeographicId[baseGeographicCRS][1],mapConversionId[definedByConversion][0], mapConversionId[definedByConversion][1])
+        all_sql.append(sql)
+        sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','projected_crs','IGNF','%s','%s','%s','%s','%s');""" % (alias, alias, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
         all_sql.append(sql)
 
     mapProjectedId[id] = ('IGNF', id)
@@ -1050,12 +1112,16 @@ for node in root.iterfind('.//CompoundCRS'):
     else:
         horiz = mapGeographicId[singleCRS[0]]
 
-    area_of_use = get_area_of_use(node.find('domainOfValidity'))
+    extent_auth_and_code = get_extent_auth_name_code(node.find('domainOfValidity'))
+    scope = node.find('scope').text
+    scope_auth_and_code = get_scope_auth_name_code(scope)
 
     #sql = """INSERT INTO "crs" VALUES('IGNF','%s','compound');""" % (id, )
     #all_sql.append(sql)
 
-    sql = """INSERT INTO "compound_crs" VALUES('IGNF','%s','%s',NULL,NULL,'%s','%s','%s','%s','%s','%s',0);""" % (id,name,horiz[0], horiz[1],mapVerticalCrsId[singleCRS[1]][0], mapVerticalCrsId[singleCRS[1]][1], area_of_use[0], area_of_use[1])
+    sql = """INSERT INTO "compound_crs" VALUES('IGNF','%s','%s',NULL,'%s','%s','%s','%s',0);""" % (id,name,horiz[0], horiz[1],mapVerticalCrsId[singleCRS[1]][0], mapVerticalCrsId[singleCRS[1]][1])
+    all_sql.append(sql)
+    sql = """INSERT INTO "usage" VALUES('IGNF', '%s_USAGE','compound_crs','IGNF','%s','%s','%s','%s','%s');""" % (id, id, extent_auth_and_code[0], extent_auth_and_code[1], scope_auth_and_code[0], scope_auth_and_code[1])
     all_sql.append(sql)
 
     if len(names) >= 2 and names[1].startswith('http://registre.ign.fr/ign/IGNF/crs/IGNF/'):
@@ -1083,11 +1149,15 @@ all_sql.append("""INSERT INTO grid_alternatives(original_grid_name,
                               'https://cdn.proj.org/fr_ign_ntf_r93.tif', 1, 1, NULL);
 """)
 
-for grid in setVerticalGrids:
+for grid in sorted(setVerticalGrids):
 
     original_grid_name = grid
     old_proj_grid_name = grid[grid.rfind('/')+1:].replace('.txt', '.gtx').replace('.mnt', '.gtx').replace('.gra', '.gtx')
     gtiff_grid_name = 'fr_ign_' + old_proj_grid_name[0:-4] + '.tif'
+
+    proj_cdn_url = 'https://cdn.proj.org/' + gtiff_grid_name
+    r = requests.head(proj_cdn_url, allow_redirects = True)
+    assert r.status_code in (200, 302), proj_cdn_url
 
     all_sql.append("""INSERT INTO grid_alternatives(original_grid_name,
                             proj_grid_name,
@@ -1104,7 +1174,7 @@ for grid in setVerticalGrids:
                             'geoid_like',
                             0,
                             NULL,
-                            '%s', 1, 1, NULL);""" % (original_grid_name, gtiff_grid_name, old_proj_grid_name, 'https://cdn.proj.org/' + gtiff_grid_name))
+                            '%s', 1, 1, NULL);""" % (original_grid_name, gtiff_grid_name, old_proj_grid_name, proj_cdn_url))
 
 
 all_sql.append('')
@@ -1112,28 +1182,40 @@ all_sql.append("""--- Null transformations between RRAF and WGS84 adapted from E
 all_sql.append('')
 
 area_of_use_name = 'ANTILLES FRANCAISES'
-assert area_of_use_name in areaOfUseMap
-area_of_use = areaOfUseMap[area_of_use_name]
+assert area_of_use_name in extentMap
+extent_auth_and_code = extentMap[area_of_use_name]
 
-all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RRAF_TO_EPSG_4978','RRAF to WGS 84',NULL,NULL,'EPSG','1031','Geocentric translations (geocentric domain)','IGNF','RRAF','EPSG','4978','%s','%s',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (area_of_use[0], area_of_use[1]))
+all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RRAF_TO_EPSG_4978','RRAF to WGS 84',NULL,'EPSG','1031','Geocentric translations (geocentric domain)','IGNF','RRAF','EPSG','4978',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""")
+sql = """INSERT INTO "usage" VALUES('PROJ', '%s_USAGE','helmert_transformation','PROJ','%s','%s','%s','%s','%s');""" % ('IGNF_RRAF_TO_EPSG_4978', 'IGNF_RRAF_TO_EPSG_4978', extent_auth_and_code[0], extent_auth_and_code[1], 'EPSG', '1024')
+all_sql.append(sql)
 
-all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RRAFG_TO_EPSG_4326','RRAFG to WGS 84',NULL,NULL,'EPSG','9603','Geocentric translations (geog2D domain)','IGNF','RRAFG','EPSG','4326','%s','%s',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (area_of_use[0], area_of_use[1]))
+all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RRAFG_TO_EPSG_4326','RRAFG to WGS 84',NULL,'EPSG','9603','Geocentric translations (geog2D domain)','IGNF','RRAFG','EPSG','4326',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""")
+sql = """INSERT INTO "usage" VALUES('PROJ', '%s_USAGE','helmert_transformation','PROJ','%s','%s','%s','%s','%s');""" % ('IGNF_RRAFG_TO_EPSG_4326', 'IGNF_RRAFG_TO_EPSG_4326', extent_auth_and_code[0], extent_auth_and_code[1], 'EPSG', '1024')
+all_sql.append(sql)
 
-all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RRAFGDD_TO_EPSG_4326','RRAFGDD to WGS 84',NULL,NULL,'EPSG','9603','Geocentric translations (geog2D domain)','IGNF','RRAFGDD','EPSG','4326','%s','%s',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (area_of_use[0], area_of_use[1]))
+all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RRAFGDD_TO_EPSG_4326','RRAFGDD to WGS 84',NULL,'EPSG','9603','Geocentric translations (geog2D domain)','IGNF','RRAFGDD','EPSG','4326',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""")
+sql = """INSERT INTO "usage" VALUES('PROJ', '%s_USAGE','helmert_transformation','PROJ','%s','%s','%s','%s','%s');""" % ('IGNF_RRAFGDD_TO_EPSG_4326', 'IGNF_RRAFGDD_TO_EPSG_4326', extent_auth_and_code[0], extent_auth_and_code[1], 'EPSG', '1024')
+all_sql.append(sql)
 
 all_sql.append('')
 all_sql.append("""--- Null transformations between RGF93 and WGS84 adapted from EPSG""")
 all_sql.append('')
 
 area_of_use_name = 'FRANCE METROPOLITAINE (CORSE COMPRISE)'
-assert area_of_use_name in areaOfUseMap
-area_of_use = areaOfUseMap[area_of_use_name]
+assert area_of_use_name in extentMap
+extent_auth_and_code = extentMap[area_of_use_name]
 
-all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RGF93_TO_EPSG_4978','RGF93 to WGS 84',NULL,NULL,'EPSG','1031','Geocentric translations (geocentric domain)','IGNF','RGF93','EPSG','4978','%s','%s',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (area_of_use[0], area_of_use[1]))
+all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RGF93_TO_EPSG_4978','RGF93 to WGS 84',NULL,'EPSG','1031','Geocentric translations (geocentric domain)','IGNF','RGF93','EPSG','4978',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""")
+sql = """INSERT INTO "usage" VALUES('PROJ', '%s_USAGE','helmert_transformation','PROJ','%s','%s','%s','%s','%s');""" % ('IGNF_RGF93_TO_EPSG_4978', 'IGNF_RGF93_TO_EPSG_4978', extent_auth_and_code[0], extent_auth_and_code[1], 'EPSG', '1024')
+all_sql.append(sql)
 
-all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RGF93G_TO_EPSG_4326','RGF93G to WGS 84',NULL,NULL,'EPSG','9603','Geocentric translations (geog2D domain)','IGNF','RGF93G','EPSG','4326','%s','%s',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (area_of_use[0], area_of_use[1]))
+all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RGF93G_TO_EPSG_4326','RGF93G to WGS 84',NULL,'EPSG','9603','Geocentric translations (geog2D domain)','IGNF','RGF93G','EPSG','4326',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""")
+sql = """INSERT INTO "usage" VALUES('PROJ', '%s_USAGE','helmert_transformation','PROJ','%s','%s','%s','%s','%s');""" % ('IGNF_RGF93G_TO_EPSG_4326', 'IGNF_RGF93G_TO_EPSG_4326', extent_auth_and_code[0], extent_auth_and_code[1], 'EPSG', '1024')
+all_sql.append(sql)
 
-all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RGF93GDD_TO_EPSG_4326','RGF93GDD to WGS 84',NULL,NULL,'EPSG','9603','Geocentric translations (geog2D domain)','IGNF','RGF93GDD','EPSG','4326','%s','%s',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""" % (area_of_use[0], area_of_use[1]))
+all_sql.append("""INSERT INTO "helmert_transformation" VALUES('PROJ','IGNF_RGF93GDD_TO_EPSG_4326','RGF93GDD to WGS 84',NULL,'EPSG','9603','Geocentric translations (geog2D domain)','IGNF','RGF93GDD','EPSG','4326',1.0,0.0,0.0,0.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);""")
+sql = """INSERT INTO "usage" VALUES('PROJ', '%s_USAGE','helmert_transformation','PROJ','%s','%s','%s','%s','%s');""" % ('IGNF_RGF93GDD_TO_EPSG_4326', 'IGNF_RGF93GDD_TO_EPSG_4326', extent_auth_and_code[0], extent_auth_and_code[1], 'EPSG', '1024')
+all_sql.append(sql)
 
 script_dir_name = os.path.dirname(os.path.realpath(__file__))
 sql_dir_name = os.path.join(os.path.dirname(script_dir_name), 'data', 'sql')

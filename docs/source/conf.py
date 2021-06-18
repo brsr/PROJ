@@ -35,12 +35,21 @@ import bibstyle
 extensions = [
     'sphinx.ext.mathjax',
     'sphinxcontrib.bibtex',
+    'sphinxcontrib.spelling',
     'breathe',
     'redirects',
 ]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
+
+# BibTeX configuration
+bibtex_bibfiles = ['references.bib']
+
+# Spelling configuration
+spelling_lang = tokenizer_lang = 'en_GB'
+spelling_show_suggestions = False
+spelling_ignore_importable_modules = False
 
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
@@ -68,7 +77,8 @@ copyright = u'1983-{0}'.format(now.year)
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
 # built documents.
-version = '7.1.0'
+version = '8.1.0'
+data_version = '1.5'
 
 # use same |release| as |version|
 release = version
@@ -120,6 +130,22 @@ highlight_language = 'none'
 # If true, `todo` and `todoList` produce output, else they produce nothing.
 todo_include_todos = False
 
+# Replacement macros for use in code-blocks etc. With inspiration from
+# https://github.com/sphinx-doc/sphinx/issues/4054#issuecomment-329097229
+def replace_words(app, docname, source):
+    result = source[0]
+    for key in app.config.replacements:
+        result = result.replace(key, app.config.replacements[key])
+    source[0] = result
+
+replacements = {
+    "{PROJVERSION}" : "{version_number}".format(version_number=version),
+    "{PROJDATAVERSION}" : "{data_version_number}".format(data_version_number=data_version),
+}
+
+def setup(app):
+   app.add_config_value('replacements', {}, True)
+   app.connect('source-read', replace_words)
 
 # -- Options for HTML output ----------------------------------------------
 
@@ -163,7 +189,7 @@ html_logo = '../images/logo.png'
 # The name of an image file (within the static path) to use as favicon of the
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32
 # pixels large.
-#html_favicon = None
+html_favicon = '../images/favicon.png'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -176,7 +202,7 @@ html_context = {
     'github_user': 'OSGeo',
     'github_repo': 'PROJ',
     # TODO: edit when switching active branch
-    'github_version': '/7.0/docs/source/',
+    'github_version': '/8.0/docs/source/',
     'css_files': [
         '_static/theme_overrides.css',  # override wide tables in RTD theme
     ],

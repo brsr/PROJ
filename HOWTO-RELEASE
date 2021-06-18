@@ -52,7 +52,7 @@ Update the following files with the new ABI version number:
 
     - `src/Makefile.am`     Update -version-info
     - `CMakeLists.txt`:     Update PROJ_BUILD_VERSION (cur:rev:age) and
-                            PROJ_API_VERSION (current)
+                            PROJ_API_VERSION (current-age)
 
 *Commit the changes to master.*
 
@@ -63,7 +63,7 @@ Update the following files with the new ABI version number:
 Man pages are (mostly) automatically generated from the Sphinx docs. Follow
 these steps:
 
-    - Temporarily update version in `docs/source/conf.py`
+    - Temporarily update `version` and `data_version` in `docs/source/conf.py`
     - run `scripts/update_man.sh`
     - Revert version number in `docs/source/conf.py`
 
@@ -99,7 +99,16 @@ If needed, update the year in `CITATION`.
 *Commit the changes to master.*
 
 
-1.5 Create maintenance branch
+1.5 Update `PROJ_DATA.VERSION`
+-------------------------------------------------------------------------------
+
+If the database references data from an updated PROJ-data package, update
+`PROJ_DATA.VERSION` in `data/sql/metadata.sql`.
+
+*Commit the changes to master.*
+
+
+1.6 Create maintenance branch
 -------------------------------------------------------------------------------
 
 *Skip this step if you are preparing a patch release or RC2 and later.*
@@ -117,7 +126,7 @@ subsequently cherry-picked to the maintenance branch.
 *Push branch upstream.*
 
 
-1.6 Prepare and upload archives
+1.7 Prepare and upload archives
 -------------------------------------------------------------------------------
 
 Run autoconf and configure the build:
@@ -148,13 +157,13 @@ scp proj-x.y.zRCn.* warmerdam@download.osgeo.org:/osgeo/download/proj
 Adjust version numbers and usernames accordingly.
 
 
-1.7 Announce the release candidate
+1.8 Announce the release candidate
 -------------------------------------------------------------------------------
 
 Announce the release candidate on the PROJ mailing list.
 
 
-1.8 Promotion to final release
+1.9 Promotion to final release
 -------------------------------------------------------------------------------
 
 When you are confident that the latest release candidate is ready for promotion
@@ -176,9 +185,17 @@ See step 1.6 above. Do not rename the archives with RC postfixes.
 ------------------------------------------------------------------------------
 
   - Add the release notes from `NEWS` to `docs/source/news.rst`
+
+    These vim substitutions are helpfull when converting NEWS to rst:
+
+    :s!(\#\(\d\{4}\))!(`\#\1 <https://github.com/OSGeo/PROJ/issues/\1>`_)!
+    :s/^o/*/
+
   - Update download links in `docs/source/download.rst`
   - Update `$TRAVIS_BRANCH` in `travis\after_success.sh` to new maintenance
     branch.
+
+
 
 *Commit the changes to master and cherry-pick into maintenance branch.*
 
@@ -227,7 +244,6 @@ version numbers in the files.
   - configure.ac:         Update the version number in AC_INIT().
   - src/proj.h:           Update PROJ_VERSION_MAJOR, PROJ_VERSION_MINOR and
                           PROJ_VERSION_PATCH.
-  - src/proj_api.h:       Update PJ_VERSION.
   - src/release.cpp:      Update date to the scheduled release date.
   - CMakeLists.txt:       Update proj_version()
   - docs/source/conf.py:   Update version number

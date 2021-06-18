@@ -1,5 +1,7 @@
 set(GIE_BIN "gie")
 
+option(RUN_NETWORK_DEPENDENT_TESTS "Whether to run tests dependent on network availability" ON)
+
 # Regression tests
 proj_add_gie_test("Builtins" "gie/builtins.gie")
 proj_add_gie_test("Builtins2" "gie/more_builtins.gie")
@@ -11,6 +13,17 @@ proj_add_gie_test("4D-API-cs2cs-style" "gie/4D-API_cs2cs-style.gie")
 proj_add_gie_test("DHDN_ETRS89" "gie/DHDN_ETRS89.gie")
 proj_add_gie_test("Unitconvert" "gie/unitconvert.gie")
 proj_add_gie_test("geotiff_grids" "gie/geotiff_grids.gie")
+proj_add_gie_test("adams_hemi" "gie/adams_hemi.gie")
+proj_add_gie_test("adams_ws1" "gie/adams_ws1.gie")
+proj_add_gie_test("adams_ws2" "gie/adams_ws2.gie")
+proj_add_gie_test("guyou" "gie/guyou.gie")
+proj_add_gie_test("peirce_q" "gie/peirce_q.gie")
+proj_add_gie_test("defmodel" "gie/defmodel.gie")
+proj_add_gie_test("tinshift" "gie/tinshift.gie")
+
+if(CURL_ENABLED AND RUN_NETWORK_DEPENDENT_TESTS)
+proj_add_gie_network_dependent_test("nkg" "gie/nkg.gie")
+endif()
 
 # GIGS tests. Uncommented tests are expected to fail due to issues with
 # various projections. Should be investigated further and fixed.
@@ -25,7 +38,7 @@ proj_add_gie_test("GIGS-5102.1" "gigs/5102.1.gie")
 proj_add_gie_test("GIGS-5103.1" "gigs/5103.1.gie")
 proj_add_gie_test("GIGS-5103.2" "gigs/5103.2.gie")
 proj_add_gie_test("GIGS-5103.3" "gigs/5103.3.gie")
-#proj_add_gie_test("GIGS-5104" "gigs/5104.gie")
+proj_add_gie_test("GIGS-5104" "gigs/5104.gie")
 #proj_add_gie_test("GIGS-5105.1" "gigs/5105.1.gie")
 proj_add_gie_test("GIGS-5105.2" "gigs/5105.2.gie")
 proj_add_gie_test("GIGS-5106" "gigs/5106.gie")

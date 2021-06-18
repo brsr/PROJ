@@ -20,7 +20,7 @@ CDN of GeoTIFF grids
 Files are accessed by default through a CDN (Content Delivery Network),
 accessible through https://cdn.proj.org, that contains :ref:`geodetictiffgrids`
 datasets which are mirrored and managed by the
-https://github.com/OSGeo/proj-datumgrid-geotiff/ GitHub project.
+https://github.com/OSGeo/PROJ-data/ GitHub project.
 Files in the CDN are designed to be used by PROJ 7 or later, but any software
 project wishing to use the CDN for shifting support are encouraged to
 participate in the project and leverage the CDN. 
@@ -34,16 +34,16 @@ the user authorizes network access.
 Authorizing network access can be done in multiple ways:
 
   - enabling / uncommenting the ``network = on`` line of :ref:`proj-ini`
-  - definiting the :envvar:`PROJ_NETWORK` environment variable to ON
+  - defining the :envvar:`PROJ_NETWORK` environment variable to ON
   - or using the :cpp:func:`proj_context_set_enable_network` with a
-    ``enabled`` = TRUE value.
+    ``enabled = TRUE`` value.
 
 .. note::
 
     Instead of using the `libcurl` implementation, an application using the PROJ
     API can supply its own network implementation through C function callbacks
     with :cpp:func:`proj_context_set_network_callbacks`. Enabling network use
-    must still be done with one of the above mentionned method.
+    must still be done with one of the above mentioned method.
 
 Setting endpoint
 ----------------
@@ -59,7 +59,7 @@ Caching
 -------
 
 To avoid repeated access to network, a local cache of downloaded chunks of grids
-is implemented as SQLite3 database, ``cache.db``, stored in the
+is implemented as SQLite3 database, :file:`cache.db`, stored in the
 :ref:`PROJ user writable directory <user_writable_directory>`.
 
 This local caching is enabled by default (can be changed in :ref:`proj-ini` or

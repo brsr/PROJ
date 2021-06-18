@@ -4,10 +4,10 @@
 Known differences between versions
 ================================================================================
 
-Once in a while, a new version of PROJ causes changes in the existing behaviour.
+Once in a while, a new version of PROJ causes changes in the existing behavior.
 In this section we track deliberate changes to PROJ that break from previous
-behaviour. Most times that will be caused by a bug fix. Unfortunately, some bugs
-have existed for so long that their faulty behaviour is relied upon by software
+behavior. Most times that will be caused by a bug fix. Unfortunately, some bugs
+have existed for so long that their faulty behavior is relied upon by software
 that uses PROJ.
 
 Behavioural changes caused by new bugs are not tracked here, as they should be
@@ -57,15 +57,15 @@ rotation of the circle larger than :math:`\lambda=-70^{\circ}` and hence
 should return the same output for both.
 
 Adding the ``+over`` flag to the projection definition provides
-the old behaviour.
+the old behavior.
 
 Version 6.0.0
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-Removal of proj_def.dat
------------------------
+Removal of :file:`proj_def.dat`
+-------------------------------
 
-Before PROJ 6, the ``proj_def.dat`` was used to provide general and per-projection
+Before PROJ 6, the :file:`proj_def.dat` was used to provide general and per-projection
 parameters, when ``+no_defs`` was not specified. It has now been removed. In case,
 no ellipsoid or datum specification is provided in the PROJ string, the
 default ellipsoid is GRS80 (was WGS84 in previous PROJ versions).
@@ -121,8 +121,8 @@ Version 6.3.0
 projinfo
 --------
 
-Before PROJ 6.3.0, WKT1:GDAL was implicitly calling --boundcrs-to-wgs84, to
-add a TOWGS84[] node in some cases. This is no longer the case.
+Before PROJ 6.3.0, WKT1:GDAL was implicitly calling ``--boundcrs-to-wgs84``, to
+add a ``TOWGS84[]`` node in some cases. This is no longer the case.
 
 
 Version 7.0.0

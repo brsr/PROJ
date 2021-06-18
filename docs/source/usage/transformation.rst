@@ -150,7 +150,7 @@ PROJ 4.x/5.x paradigm
     ============   ==============================================================
 
 .. warning::
-    This section documents the behaviour of PROJ 4.x and 5.x. In PROJ 6.x,
+    This section documents the behavior of PROJ 4.x and 5.x. In PROJ 6.x,
     :program:`cs2cs` has been reworked to use :c:func:`proj_create_crs_to_crs` internally,
     with *late binding* capabilities, and thus is no longer constrained to using
     WGS84 as a pivot (also called as *early binding* method).
@@ -187,7 +187,7 @@ In contrast to the *transformation pipeline* framework, transformations with the
 *cs2cs* framework in PROJ 4 and 5 were expressed as two separate proj-strings. One proj-string *to*
 WGS84 and one *from* WGS84. Together they form the mapping from the source
 coordinate reference system to the destination coordinate reference system.
-When used with the ``cs2cs`` the source and destination CRS's are separated by the
+When used with the :program:`cs2cs` the source and destination CRS's are separated by the
 special ``+to`` parameter.
 
 The following example demonstrates converting from the Greek GGRS87 datum
@@ -209,11 +209,11 @@ With PROJ 6, you can simply use the following:
 
     cs2cs "GGRS87" "WGS 84"
     35 20
-    35d0'9.575"N	20d0'5.467"E 0.000
+    35d0'9.575"N    20d0'5.467"E 0.000
 
     cs2cs EPSG:4121 EPSG:4326
     35 20
-    35d0'9.575"N	20d0'5.467"E 0.000
+    35d0'9.575"N    20d0'5.467"E 0.000
 
 The EPSG database provides this example for transforming from WGS72 to WGS84
 using an approximated 7 parameter transformation.
@@ -232,11 +232,11 @@ latitude and longitude)
 
     cs2cs "WGS 72" "WGS 84"
     55 4
-    55d0'0.09"N	4d0'0.554"E 0.000
+    55d0'0.09"N 4d0'0.554"E 0.000
 
     cs2cs EPSG:4322 EPSG:4326
     55 4
-    55d0'0.09"N	4d0'0.554"E 0.000
+    55d0'0.09"N 4d0'0.554"E 0.000
 
 
 Grid Based Datum Adjustments
@@ -249,8 +249,8 @@ at each grid location. Actually grid shifts are normally computed based on an
 interpolation between the containing four grid points.
 
 PROJ supports use of grid files for shifting between various reference frames.
-The grid shift table formats are ctable, NTv1 (the old Canadian format), and NTv2 (``.gsb`` - the new
-Canadian and Australian format).
+The grid shift table formats are CTable, NTv1 (the old Canadian format), and NTv2
+(:file:`.gsb` - the new Canadian and Australian format).
 
 The text in this section is based on the *cs2cs* framework. Gridshifting is off
 course also possible with the *pipeline* framework. The major difference between the
@@ -258,7 +258,7 @@ two is that the *cs2cs* framework is limited to grid mappings to WGS84, whereas 
 *transformation pipelines* it is possible to perform grid shifts between any two
 reference frames, as long as a grid exists.
 
-Use of grid shifts with ``cs2cs`` is specified using the ``+nadgrids``
+Use of grid shifts with :program:`cs2cs` is specified using the ``+nadgrids``
 keyword in a coordinate system definition. For example:
 
 ::
@@ -269,7 +269,7 @@ keyword in a coordinate system definition. For example:
     EOF
     111d0'2.952"W   50d0'0.111"N 0.000
 
-In this case the ``/usr/local/share/proj/ntv1_can.dat`` grid shift file was
+In this case the :file:`/usr/local/share/proj/ntv1_can.dat` grid shift file was
 loaded, and used to get a grid shift value for the selected point.
 
 It is possible to list multiple grid shift files, in which case each will be
@@ -291,8 +291,8 @@ Skipping Missing Grids
 The special prefix ``@`` may be prefixed to a grid to make it optional.  If it
 not found, the search will continue to the next grid.  Normally any grid not
 found will cause an error.  For instance, the following would use the
-``ntv2_0.gsb`` file if available, otherwise it would
-fallback to using the ``ntv1_can.dat`` file.
+:file:`ntv2_0.gsb` file if available, otherwise it would
+fallback to using the :file:`ntv1_can.dat` file.
 
 ::
 
@@ -305,7 +305,7 @@ fallback to using the ``ntv1_can.dat`` file.
 The null Grid
 ................................................................................
 
-A special ``null`` grid shift file is distributed with PROJ.
+A special :file:`null` grid shift file is distributed with PROJ.
 This file provides a zero shift for the whole world.  It may be
 listed at the end of a nadgrids file list if you want a zero shift to be
 applied to points outside the valid region of all the other grids.  Normally if
@@ -332,7 +332,7 @@ For more information see the chapter on :ref:`transformation_grids`.
 Caveats
 ................................................................................
 
-* Where grids overlap (such as conus and ntv1_can.dat for instance) the first
+* Where grids overlap (such as conus and :file:`ntv1_can.dat` for instance) the first
   found for a point will be used regardless of whether it is appropriate or
   not.  So, for instance, ``+nadgrids=ntv1_can.dat``,conus would result in
   the Canadian data being used for some areas in the northern United States

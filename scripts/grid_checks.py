@@ -30,16 +30,16 @@
 ###############################################################################
 
 import argparse
-import csv
 import fnmatch
 import os
 import sqlite3
 
-parser = argparse.ArgumentParser(description='Check database and PROJ-data consistency.')
+parser = argparse.ArgumentParser(
+    description='Check database and PROJ-data consistency.')
 parser.add_argument('path_to_proj_db',
                     help='Full pathname to proj.db')
-parser.add_argument('path_to_proj_datumgrid',
-                    help='Full pathname to the root of the proj_datumgrid_geotiff git repository')
+parser.add_argument('path_to_proj_data',
+                    help='Full pathname to the root of the proj_data_geotiff git repository')
 
 group = parser.add_mutually_exclusive_group(required=True)
 group.add_argument('--not-in-grid-alternatives', dest='not_in_grid_alternatives', action='store_true',
@@ -49,38 +49,63 @@ group.add_argument('--not-in-proj-data', dest='not_in_proj_data', action='store_
 group.add_argument('--not-in-db', dest='not_in_db', action='store_true',
                    help='list grids in PROJ-data repository, but not registered in grid_alternatives')
 
+parser.add_argument('--show-superseded', dest='show_superseded', action='store_true',
+                    help='Show superseded grid transformations in --not-in-grid-alternatives mode')
+
 args = parser.parse_args()
 
 dbname = args.path_to_proj_db
-proj_datumgrid = args.path_to_proj_datumgrid
+proj_data = args.path_to_proj_data
 
 if args.not_in_grid_alternatives:
     conn = sqlite3.connect(dbname)
-    print('Authority, code, name, grid_name, is_superseded')
-    res = conn.execute("""
-        SELECT auth_name, code, name, grid_name, EXISTS (SELECT 1 FROM supersession WHERE superseded_table_name = 'grid_transformation' AND superseded_auth_name = auth_name AND superseded_code = code) AS superseded FROM grid_transformation
-        WHERE deprecated = 0 AND
-        NOT EXISTS (SELECT 1 FROM grid_alternatives WHERE original_grid_name = grid_name)""")
+    header = '"Authority","code","name","extent_name","grid_name"'
+    if args.show_superseded:
+        header += ',"is_superseded"'
+    print(header)
+    sql = """
+        SELECT gt.auth_name, gt.code, gt.name, e.name, gt.grid_name,
+        EXISTS (SELECT 1 FROM supersession WHERE
+                superseded_table_name = 'grid_transformation' AND
+                superseded_auth_name = gt.auth_name AND
+                superseded_code = gt.code) AS superseded
+        FROM grid_transformation gt
+        JOIN usage u
+        ON u.object_table_name = 'grid_transformation' AND
+           u.object_auth_name = gt.auth_name AND
+           u.object_code = gt.code
+        JOIN extent e
+        ON e.auth_name = u.extent_auth_name AND
+           e.code = u.extent_code
+        WHERE gt.deprecated = 0 AND
+        NOT EXISTS (SELECT 1 FROM grid_alternatives WHERE original_grid_name = gt.grid_name)"""
+    if not args.show_superseded:
+        sql += " AND superseded = 0"
+    res = conn.execute(sql)
     for row in res:
-        print(row)
+        if not args.show_superseded:
+            row = [x for x in row][0:-1]
+        print(','.join(['"' + str(x) + '"' for x in row]))
 
 elif args.not_in_proj_data:
 
     set_grids = set()
-    for root, dirnames, filenames in os.walk(proj_datumgrid):
+    for root, dirnames, filenames in os.walk(proj_data):
         for filename in fnmatch.filter(filenames, '*'):
             set_grids.add(filename)
 
     conn = sqlite3.connect(dbname)
-    res = conn.execute("SELECT DISTINCT proj_grid_name FROM grid_alternatives WHERE open_license is NULL OR open_license != 0")
+    res = conn.execute(
+        "SELECT DISTINCT proj_grid_name FROM grid_alternatives WHERE open_license is NULL OR open_license != 0")
     for (grid_name,) in res:
         if grid_name not in set_grids:
-            print('ERROR: grid ' + grid_name + ' in grid_alternatives but missing in PROJ-data')
+            print('ERROR: grid ' + grid_name +
+                  ' in grid_alternatives but missing in PROJ-data')
 
 elif args.not_in_db:
 
     set_grids = set()
-    for root, dirnames, filenames in os.walk(proj_datumgrid):
+    for root, dirnames, filenames in os.walk(proj_data):
         if '.git' in root:
             continue
         for filename in fnmatch.filter(filenames, '*'):
@@ -92,8 +117,10 @@ elif args.not_in_db:
 
     conn = sqlite3.connect(dbname)
     for filename in sorted(set_grids):
-        res = conn.execute("SELECT 1 FROM grid_alternatives WHERE proj_grid_name = ?", (filename,))
+        res = conn.execute(
+            "SELECT 1 FROM grid_alternatives WHERE proj_grid_name = ?", (filename,))
         if not res.fetchone():
-            print('WARNING: grid ' + filename + ' in PROJ-data but missing in grid_alternatives')
+            print('WARNING: grid ' + filename +
+                  ' in PROJ-data but missing in grid_alternatives')
 else:
     raise Exception('unknown mode')
