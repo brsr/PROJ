@@ -4,6 +4,12 @@
 proj
 ================================================================================
 
+.. _invproj:
+
+================================================================================
+invproj
+================================================================================
+
 .. only:: html
 
     Cartographic projection filter.
@@ -12,9 +18,9 @@ proj
 
 Synopsis
 ********
-    **proj** [**-beEfiIlmorsStTvVwW**] [args]] [*+opt[=arg]* ...] file ...
+    **proj** [**-beEfiIlmorsStTvVwW**] [args]] ([*+opt[=arg]* ...] | {crs}) file ...
 
-    **invproj** [**-beEfiIlmorsStTvVwW**] [args]] [*+opt[=arg]* ...] file ...
+    **invproj** [**-beEfiIlmorsStTvVwW**] [args]] ([*+opt[=arg]* ...] | {crs}) file ...
 
 
 Description
@@ -41,7 +47,7 @@ The following control parameters can appear in any order
 
 .. versionadded:: 5.2.0
 
-    Specify the number of decimals in the output.
+    Specify the number of decimals to round to in the output.
 
 .. option:: -i
 
@@ -157,7 +163,7 @@ Additional projection control parameters may be contained in two auxiliary
 control files: the first is optionally referenced with the
 *+init=file:id* and the second is always processed after the name of the
 projection has been established from either the run-line or the contents of
-+init file. The environment parameter :envvar:`PROJ_LIB` establishes the
++init file. The environment parameter :envvar:`PROJ_DATA` establishes the
 default directory for a file reference without an absolute path. This is
 also used for supporting files like datum shift files.
 
@@ -166,6 +172,13 @@ also used for supporting files like datum shift files.
     Usage of *+opt* varies with projection and for a complete description
     consult the :ref:`projection pages <projections>`.
 
+.. versionadded:: 9.3.0
+
+    *{crs}* is one of the possibilities accepted by :c::func:`proj_create()`, provided it
+    expresses a projected CRS, like a WKT string, an object code (like "EPSG:32632")
+    a PROJJSON string, etc.
+    The projection computed will be those of the map projection implied by
+    the transformation from the base geographic CRS of the projected CRS to the projected CRS.
 
 One or more files (processed in left to right order) specify the source of
 data to be converted. A ``-`` will specify the location of processing standard
@@ -186,18 +199,54 @@ The following script
 
 .. code-block:: console
 
-    proj +proj=utm +lon_0=112w +ellps=clrk66 -r <<EOF
+    proj +proj=utm +zone=12 -r <<EOF
     45d15'33.1" 111.5W
     45d15.551666667N -111d30
     +45.25919444444 111d30'000w
     EOF
 
-will perform UTM forward projection with a standard UTM central meridian
-nearest longitude 112W. The geographic values of this example are equivalent
+will perform UTM zone 12 forward projection.
+The default +ellps=GRS80 is used as no +ellps was specified.
+The geographic values of this example are equivalent
 and meant as examples of various forms of DMS input. The x-y output
 data will appear as three lines of::
 
-    460769.27     5011648.45
+    460770.43     5011865.86
+
+This other example
+
+.. code-block:: console
+
+    proj EPSG:6421 -V <<EOF
+    -120 35.8
+    EOF
+
+Will perform the projection of the coordinates in "NAD83(2011) / California zone 4"
+(`EPSG:6421`) into its geographic system, "NAD83(2011)", showing the expanded annotated listing.
+The output will appear as:
+
+.. code-block:: console
+
+    #Lambert Conformal Conic
+    #   Conic, Sph&Ell
+    #   lat_1= and lat_2= or lat_0, k_0=
+    # +proj=lcc +lat_0=35.3333333333333 +lon_0=-119 +lat_1=37.25 +lat_2=36
+    # +x_0=2000000 +y_0=500000 +ellps=GRS80
+    #Final Earth figure: ellipsoid
+    #  Major axis (a): 6378137.000
+    #  1/flattening: 298.257222
+    #  squared eccentricity: 0.006694380023
+    Longitude: 120dW [ -120 ]
+    Latitude:  35d48'N [ 35.8 ]
+    Easting (x):   1909606.87
+    Northing (y):  552253.58
+    Meridian scale (h) : 1.00004382  ( 0.004382 % error )
+    Parallel scale (k) : 1.00004382  ( 0.004382 % error )
+    Areal scale (s):     1.00008765  ( 0.008765 % error )
+    Angular distortion (w): 0.000
+    Meridian/Parallel angle: 90.00000
+    Convergence : -0d35'47.714" [ -0.59658715 ]
+    Max-min (Tissot axis a-b) scale error: 1.00004 1.00004
 
 .. only:: man
 

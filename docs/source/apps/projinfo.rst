@@ -34,7 +34,9 @@ Synopsis
     |    --searchpaths | --remote-data |
     |    --list-crs [list-crs-filter] |
     |    --dump-db-structure [{object_definition} | {object_reference}] |
-    |    {object_definition} | {object_reference} | (-s {srs_def} -t {srs_def})
+    |    {object_definition} | {object_reference} |
+    |    (-s {srs_def} [--s_epoch {epoch}] -t {srs_def} [--t_epoch {epoch}]) |
+    |    ({srs_def} {srs_def})
     |
 
     where {object_definition} or {srs_def} is one of the possibilities accepted
@@ -46,6 +48,7 @@ Synopsis
       "urn:ogc:def:coordinateOperation:EPSG::1671"),
     - an Object name. e.g "WGS 84", "WGS 84 / UTM zone 31N". In that case as
       uniqueness is not guaranteed, heuristics are applied to determine the appropriate best match.
+    - a CRS name and a coordinate epoch, separated with '@'. For example "ITRF2014@2025.0". (*added in 9.2*)
     - a OGC URN combining references for compound coordinate reference systems
       (e.g "urn:ogc:def:crs,crs:EPSG::2393,crs:EPSG::5717" or custom abbreviated
       syntax "EPSG:2393+5717"),
@@ -53,14 +56,18 @@ Synopsis
       e.g. for Projected 3D CRS "UTM zone 31N / WGS 84 (3D)":
       "urn:ogc:def:crs,crs:EPSG::4979,cs:PROJ::ENh,coordinateOperation:EPSG::16031"
       (*added in 6.2*)
+    - Extension of OGC URN for CoordinateMetadata.
+      e.g. "urn:ogc:def:CoordinateMetadata:NRCAN::NAD83_CSRS_1997_MTM11_HT2_1997"
     - a OGC URN combining references for concatenated operations
       (e.g. "urn:ogc:def:coordinateOperation,coordinateOperation:EPSG::3895,coordinateOperation:EPSG::1618")
-    - a PROJJSON string. The jsonschema is at https://proj.org/schemas/v0.2/projjson.schema.json (*added in 6.2*)
+    - a PROJJSON string. The jsonschema is at https://proj.org/schemas/v0.4/projjson.schema.json (*added in 6.2*)
     - a compound CRS made from two object names separated with " + ". e.g. "WGS 84 + EGM96 height" (*added in 7.1*)
 
     {object_reference} is a filename preceded by the '@' character.  The
     file referenced by the {object_reference} must contain a valid
     {object_definition}.
+
+    The usage of "{srs_def} {srs_def}" is equivalent to "-s {srs_def} -t {srs_def}" (*added in 9.5*).
 
 Description
 ***********
@@ -72,7 +79,7 @@ or PROJJSON string).
 
 It can also be used to query coordinate operations available between two CRS.
 
-The program is named with some reference to the GDAL :program:`gdalsrsinfo` that offers
+The program is named with some reference to the GDAL `gdalsrsinfo <https://gdal.org/programs/gdalsrsinfo.html>`__ utility that offers
 partly similar services.
 
 
@@ -175,7 +182,7 @@ The following control parameters can appear in any order:
     operations are returned, but the actual availability of the grids is used
     to determine the sorting order. That is, if a coordinate operation involves
     using a grid that is not available in the PROJ resource directories
-    (determined by the :envvar:`PROJ_LIB` environment variable, it will be listed in
+    (determined by the :envvar:`PROJ_DATA` environment variable), it will be listed in
     the bottom of the results.
     The ``none`` strategy completely disables the checks of presence of grids and
     this returns the results as if all the grids where available.
@@ -296,16 +303,19 @@ The following control parameters can appear in any order:
     geographic,geographic_2d,geographic_3d,vertical,projected,compound.
     Affected by options :option:`--authority`, :option:`--area`, :option:`--bbox` and :option:`--spatial-test`
 
+    A visual alternative is the webpage
+    `CRS Explorer <https://crs-explorer.proj.org/?all=true>` (https://crs-explorer.proj.org/?all=true).
+
 .. option:: --3d
 
     .. versionadded:: 6.3
 
-    "Promote" the CRS(s) to their 3D version. In the context of researching
-    available coordinate transformations, explicitly specifying this option is
-    not necessary, because when one of the source or target CRS has a vertical
-    component but not the other one, the one that has no vertical component is
-    automatically promoted to a 3D version, where its vertical axis is the
+    "Promote" 2D CRS(s) to their 3D version, where the vertical axis is the
     ellipsoidal height in metres, using the ellipsoid of the base geodetic CRS.
+    Depending on PROJ versions and the exact nature of the CRS involved,
+    especially before PROJ 9.1, a mix of 2D and 3D CRS could lead to 2D or 3D
+    transformations. Starting with PROJ 9.1, both CRS need to be 3D for vertical
+    transformation to possibly happen.
 
 .. option:: --output-id=AUTH:NAME
 
@@ -351,6 +361,20 @@ The following control parameters can appear in any order:
 
     Display information regarding if :ref:`network` is enabled, and the
     related URL.
+
+.. option:: --s_epoch
+
+    .. versionadded:: 9.4
+
+    Epoch of coordinates in the source CRS, as decimal year.
+    Only applies to a dynamic CRS.
+
+.. option:: --t_epoch
+
+    .. versionadded:: 9.4
+
+    Epoch of coordinates in the target CRS, as decimal year.
+    Only applies to a dynamic CRS.
 
 Examples
 ********
@@ -595,6 +619,19 @@ Output:
 
     WKT1:GDAL string:
     PROJCS["ETRS89 / UTM zone 32N",GEOGCS["ETRS89",DATUM["European_Terrestrial_Reference_System_1989",SPHEROID["GRS 1980",6378137,298.257222101,AUTHORITY["EPSG","7019"]],AUTHORITY["EPSG","6258"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4258"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",9],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","25832"]]
+
+6. List CRS in an area
+
+.. code-block:: console
+
+      projinfo --list-crs --area Taiwan
+
+Output:
+
+.. code-block:: console
+
+      EPSG:3825 "TWD97 / TM2 zone 119"
+      EPSG:3826 "TWD97 / TM2 zone 121"...
 
 .. only:: man
 

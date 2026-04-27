@@ -32,12 +32,15 @@
 
 #include "proj/common.hpp"
 #include "proj/coordinateoperation.hpp"
+#include "proj/coordinates.hpp"
 #include "proj/coordinatesystem.hpp"
 #include "proj/crs.hpp"
 #include "proj/datum.hpp"
 #include "proj/io.hpp"
 #include "proj/metadata.hpp"
 #include "proj/util.hpp"
+
+#include <algorithm>
 
 #include <sqlite3.h>
 
@@ -48,6 +51,7 @@
 #endif
 
 using namespace osgeo::proj::common;
+using namespace osgeo::proj::coordinates;
 using namespace osgeo::proj::crs;
 using namespace osgeo::proj::cs;
 using namespace osgeo::proj::datum;
@@ -178,8 +182,6 @@ TEST(factory, AuthorityFactory_identifyBodyFromSemiMajorAxis) {
 TEST(factory, AuthorityFactory_createEllipsoid) {
     auto factory = AuthorityFactory::create(DatabaseContext::create(), "EPSG");
     EXPECT_THROW(factory->createEllipsoid("-1"), NoSuchAuthorityCodeException);
-    EXPECT_TRUE(nn_dynamic_pointer_cast<Ellipsoid>(
-                    factory->createObject("7030")) != nullptr);
     auto ellipsoid = factory->createEllipsoid("7030");
     ASSERT_EQ(ellipsoid->identifiers().size(), 1U);
     EXPECT_EQ(ellipsoid->identifiers()[0]->code(), "7030");
@@ -301,8 +303,21 @@ TEST(factory, AuthorityFactory_createVerticalDatum) {
     EXPECT_TRUE(extent->isEquivalentTo(factory->createExtent("1262").get()));
     EXPECT_TRUE(vrf->publicationDate().has_value());
     EXPECT_EQ(vrf->publicationDate()->toString(), "2008-01-01");
+    EXPECT_TRUE(!vrf->anchorEpoch().has_value());
 }
 
+// ---------------------------------------------------------------------------
+
+TEST(factory, AuthorityFactory_createVerticalDatum_with_anchor_epoch) {
+    auto factory = AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    // "Canadian Geodetic Vertical Datum of 2013 (CGG2013a) epoch 2010"
+    auto vrf = factory->createVerticalDatum("1256");
+    EXPECT_TRUE(vrf->anchorEpoch().has_value());
+    EXPECT_NEAR(vrf->anchorEpoch()->convertToUnit(UnitOfMeasure::YEAR), 2010.0,
+                1e-6);
+}
+
+#ifdef no_more_dynamic_vertical_datum
 // ---------------------------------------------------------------------------
 
 TEST(factory, AuthorityFactory_createDynamicVerticalDatum) {
@@ -311,6 +326,27 @@ TEST(factory, AuthorityFactory_createDynamicVerticalDatum) {
     auto dvrf = nn_dynamic_pointer_cast<DynamicVerticalReferenceFrame>(grf);
     ASSERT_TRUE(dvrf != nullptr);
     EXPECT_EQ(dvrf->frameReferenceEpoch().value(), 2000.0);
+}
+#endif
+
+// ---------------------------------------------------------------------------
+
+TEST(factory, AuthorityFactory_createEngineeringDatum) {
+    auto factory = AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    EXPECT_THROW(factory->createEngineeringDatum("-1"),
+                 NoSuchAuthorityCodeException);
+    auto datum = factory->createEngineeringDatum("1134");
+    ASSERT_EQ(datum->identifiers().size(), 1U);
+    EXPECT_EQ(datum->identifiers()[0]->code(), "1134");
+    EXPECT_EQ(*(datum->identifiers()[0]->codeSpace()), "EPSG");
+    EXPECT_EQ(*(datum->name()->description()), "Christmas Island Datum 1985");
+    auto domain = datum->domains()[0];
+    auto extent = domain->domainOfValidity();
+    ASSERT_TRUE(extent != nullptr);
+    EXPECT_TRUE(extent->isEquivalentTo(factory->createExtent("4169").get()));
+    EXPECT_TRUE(datum->publicationDate().has_value());
+    EXPECT_EQ(datum->publicationDate()->toString(), "1985-01-01");
+    EXPECT_TRUE(!datum->anchorEpoch().has_value());
 }
 
 // ---------------------------------------------------------------------------
@@ -337,7 +373,7 @@ TEST(factory, AuthorityFactory_createDatumEnsembleGeodetic) {
     ASSERT_EQ(ensemble->identifiers().size(), 1U);
     EXPECT_EQ(ensemble->identifiers()[0]->code(), "6326");
     EXPECT_EQ(*(ensemble->identifiers()[0]->codeSpace()), "EPSG");
-    EXPECT_EQ(ensemble->datums().size(), 6U);
+    EXPECT_EQ(ensemble->datums().size(), 8U);
     EXPECT_EQ(ensemble->positionalAccuracy()->value(), "2.0");
     ASSERT_TRUE(!ensemble->domains().empty());
     auto domain = ensemble->domains()[0];
@@ -594,6 +630,18 @@ TEST(factory, AuthorityFactory_createGeodeticCRS_geocentric) {
 
 // ---------------------------------------------------------------------------
 
+TEST(factory, AuthorityFactory_createGeographicCRS) {
+    auto factory = AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    auto crs = factory->createGeographicCRS("4979");
+    ASSERT_TRUE(nn_dynamic_pointer_cast<GeographicCRS>(crs) != nullptr);
+    ASSERT_EQ(crs->identifiers().size(), 1U);
+    EXPECT_EQ(crs->identifiers()[0]->code(), "4979");
+
+    EXPECT_THROW(factory->createGeographicCRS("4978"), FactoryException);
+}
+
+// ---------------------------------------------------------------------------
+
 TEST(factory, AuthorityFactory_createVerticalCRS) {
     auto factory = AuthorityFactory::create(DatabaseContext::create(), "EPSG");
     EXPECT_THROW(factory->createVerticalCRS("-1"),
@@ -627,6 +675,29 @@ TEST(factory, AuthorityFactory_createVerticalCRS_with_datum_ensemble) {
     ASSERT_TRUE(crs->datumEnsemble() != nullptr);
     EXPECT_TRUE(crs->datumEnsemble()->isEquivalentTo(
         factory->createDatumEnsemble("1288").get()));
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(factory, AuthorityFactory_createEngineeringCRS) {
+    auto factory = AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    EXPECT_THROW(factory->createEngineeringCRS("-1"),
+                 NoSuchAuthorityCodeException);
+
+    auto crs = factory->createEngineeringCRS("6715");
+    ASSERT_EQ(crs->identifiers().size(), 1U);
+    EXPECT_EQ(crs->identifiers()[0]->code(), "6715");
+    EXPECT_EQ(*(crs->identifiers()[0]->codeSpace()), "EPSG");
+    EXPECT_EQ(*(crs->name()->description()), "Christmas Island Grid 1985");
+    EXPECT_TRUE(
+        crs->datum()->isEquivalentTo(factory->createDatum("1134").get()));
+    EXPECT_TRUE(crs->coordinateSystem()->isEquivalentTo(
+        factory->createCoordinateSystem("4400").get()));
+
+    auto domain = crs->domains()[0];
+    auto extent = domain->domainOfValidity();
+    ASSERT_TRUE(extent != nullptr);
+    EXPECT_TRUE(extent->isEquivalentTo(factory->createExtent("4169").get()));
 }
 
 // ---------------------------------------------------------------------------
@@ -997,6 +1068,25 @@ TEST(factory,
               "+dz=0 +drx=0.00011 +dry=0.00057 +drz=-0.00071 +ds=0 "
               "+t_epoch=1989 +convention=position_vector");
 }
+// ---------------------------------------------------------------------------
+
+TEST(factory,
+     AuthorityFactory_createCoordinateOperation_CF_full_matrix_geog3D) {
+    auto factory = AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    auto op = factory->createCoordinateOperation("10675", false);
+    EXPECT_EQ(op->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=pipeline "
+              "+step +proj=axisswap +order=2,1 "
+              "+step +proj=unitconvert +xy_in=deg +z_in=m +xy_out=rad +z_out=m "
+              "+step +proj=cart +ellps=GRS80 "
+              "+step +inv +proj=helmert +exact +x=1138.7432 +y=-2064.4761 "
+              "+z=110.7016 "
+              "+rx=-214.615206 +ry=479.360036 +rz=-164.703951 +s=-402.32073 "
+              "+convention=coordinate_frame "
+              "+step +inv +proj=cart +ellps=intl "
+              "+step +proj=unitconvert +xy_in=rad +z_in=m +xy_out=deg +z_out=m "
+              "+step +proj=axisswap +order=2,1");
+}
 
 // ---------------------------------------------------------------------------
 
@@ -1072,7 +1162,7 @@ TEST(
         "        BBOX[-22.37,166.35,-22.19,166.54]],\n"
         "    ID[\"EPSG\",1295],\n"
         "    REMARK[\"Emulation using NTv2 method of tfm NEA74 Noumea to "
-        "RGNC91-93 (3) (code 15943). Note reversal of sign of parameter values "
+        "RGNC91-93 (3) (code 9328). Note reversal of sign of parameter values "
         "in grid file.\"]]";
     EXPECT_EQ(
         op->exportToWKT(
@@ -1178,6 +1268,15 @@ TEST(factory, AuthorityFactory_affine_parametric_transform) {
               "+proj=affine +xoff=82357.457 +s11=0.304794369 "
               "+s12=1.5417425e-05 +yoff=28091.324 +s21=-1.5417425e-05 "
               "+s22=0.304794369");
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(factory, AuthorityFactory_10566_issue_4212) {
+    auto factory = AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    auto op = factory->createCoordinateOperation("10566", true);
+    EXPECT_EQ(op->exportToPROJString(PROJStringFormatter::create().get()),
+              "+proj=vgridshift +grids=dk_sdfi_gllmsl_2022.tif +multiplier=1");
 }
 
 // ---------------------------------------------------------------------------
@@ -1345,8 +1444,8 @@ TEST(factory, AuthorityFactory_build_all_concatenated) {
         AuthorityFactory::ObjectType::CONCATENATED_OPERATION, false);
     EXPECT_LT(setConcatenatedNoDeprecated.size(), setConcatenated.size());
     for (const auto &code : setConcatenated) {
-        if (in(code,
-               {"8422", "8481", "8482", "8565", "8566", "8572", "9731"})) {
+        if (in(code, {"8422", "8481", "8482", "8565", "8566", "8572", "9731",
+                      "11206"})) {
             EXPECT_THROW(factory->createCoordinateOperation(code, false),
                          FactoryException)
                 << code;
@@ -1363,6 +1462,65 @@ TEST(factory, AuthorityFactory_createCoordinateOperation_conversion) {
     auto op = factory->createCoordinateOperation("16031", false);
     auto conversion = nn_dynamic_pointer_cast<Conversion>(op);
     ASSERT_TRUE(conversion != nullptr);
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(factory,
+     AuthorityFactory_createCoordinateOperation_point_motion_operation) {
+    auto factory = AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    auto op = factory->createCoordinateOperation("9483", false);
+    auto pmo = nn_dynamic_pointer_cast<PointMotionOperation>(op);
+    ASSERT_TRUE(pmo != nullptr);
+    auto expected =
+        "POINTMOTIONOPERATION[\"Canada velocity grid v7\",\n"
+        "    VERSION[\"NRC-Can cvg7.0\"],\n"
+        "    SOURCECRS[\n"
+        "        GEOGCRS[\"NAD83(CSRS)v7\",\n"
+        "            DATUM[\"North American Datum of 1983 (CSRS) version 7\",\n"
+        "                ELLIPSOID[\"GRS 1980\",6378137,298.257222101,\n"
+        "                    LENGTHUNIT[\"metre\",1]],\n"
+        "                ANCHOREPOCH[2010]],\n"
+        "            PRIMEM[\"Greenwich\",0,\n"
+        "                ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+        "            CS[ellipsoidal,3],\n"
+        "                AXIS[\"geodetic latitude (Lat)\",north,\n"
+        "                    ORDER[1],\n"
+        "                    ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+        "                AXIS[\"geodetic longitude (Lon)\",east,\n"
+        "                    ORDER[2],\n"
+        "                    ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+        "                AXIS[\"ellipsoidal height (h)\",up,\n"
+        "                    ORDER[3],\n"
+        "                    LENGTHUNIT[\"metre\",1]],\n"
+        "            ID[\"EPSG\",8254]]],\n"
+        "    METHOD[\"Point motion (geog3D domain) using NEU velocity grid "
+        "(NTv2_Vel)\",\n"
+        "        ID[\"EPSG\",1141]],\n"
+        "    PARAMETERFILE[\"Point motion velocity grid "
+        "file\",\"NAD83v70VG.gvb\"],\n"
+        "    OPERATIONACCURACY[0.01],\n"
+        "    USAGE[\n"
+        "        SCOPE[\"Change of coordinate epoch for points referenced to "
+        "NAD83(CSRS)v7.\"],\n"
+        "        AREA[\"Canada - onshore - Alberta; British Columbia (BC); "
+        "Manitoba; New Brunswick (NB); Newfoundland and Labrador; Northwest "
+        "Territories (NWT); Nova Scotia (NS); Nunavut; Ontario; Prince Edward "
+        "Island (PEI); Quebec; Saskatchewan; Yukon.\"],\n"
+        "        BBOX[41.67,-141.01,83.17,-52.54]],\n"
+        "    ID[\"EPSG\",9483],\n"
+        "    REMARK[\"File initially published with name cvg70.cvb, later "
+        "renamed to NAD83v70VG.gvb with no change of content. Replaces Canada "
+        "velocity grid v6 (code 8676). Replaced by Canada velocity grid v8 "
+        "(code 10707). Although the interpolation CRS is given as "
+        "NAD83(CSRS)v7 (also known as NAD83(CSRS) 2010), any version of "
+        "NAD83(CSRS) may be used for grid interpolation without significant "
+        "error.\"]]";
+
+    EXPECT_EQ(
+        pmo->exportToWKT(
+            WKTFormatter::create(WKTFormatter::Convention::WKT2_2019).get()),
+        expected);
 }
 
 // ---------------------------------------------------------------------------
@@ -1415,11 +1573,19 @@ TEST(factory, AuthorityFactory_getAuthorityCodes) {
                     nullptr);
         EXPECT_LT(setDynamicVerticalDatum.size(), setVerticalDatum.size());
 
+        auto setEngineeringDatum = factory->getAuthorityCodes(
+            AuthorityFactory::ObjectType::ENGINEERING_DATUM);
+        ASSERT_TRUE(!setEngineeringDatum.empty());
+        factory->createEngineeringDatum(*(setEngineeringDatum.begin()));
+
         std::set<std::string> setMerged;
         for (const auto &v : setGeodeticDatum) {
             setMerged.insert(v);
         }
         for (const auto &v : setVerticalDatum) {
+            setMerged.insert(v);
+        }
+        for (const auto &v : setEngineeringDatum) {
             setMerged.insert(v);
         }
         EXPECT_EQ(setDatum, setMerged);
@@ -1481,6 +1647,11 @@ TEST(factory, AuthorityFactory_getAuthorityCodes) {
         ASSERT_TRUE(!setCompoundCRS.empty());
         factory->createCompoundCRS(*(setCompoundCRS.begin()));
 
+        auto setEngineeringCRS = factory->getAuthorityCodes(
+            AuthorityFactory::ObjectType::ENGINEERING_CRS);
+        ASSERT_TRUE(!setEngineeringCRS.empty());
+        factory->createEngineeringCRS(*(setEngineeringCRS.begin()));
+
         std::set<std::string> setMerged;
         for (const auto &v : setGeodeticCRS) {
             setMerged.insert(v);
@@ -1492,6 +1663,9 @@ TEST(factory, AuthorityFactory_getAuthorityCodes) {
             setMerged.insert(v);
         }
         for (const auto &v : setCompoundCRS) {
+            setMerged.insert(v);
+        }
+        for (const auto &v : setEngineeringCRS) {
             setMerged.insert(v);
         }
         EXPECT_EQ(setCRS, setMerged);
@@ -1550,11 +1724,91 @@ TEST(factory, AuthorityFactory_getDescriptionText) {
     EXPECT_THROW(factory->getDescriptionText("-1"),
                  NoSuchAuthorityCodeException);
     EXPECT_EQ(factory->getDescriptionText("10000"),
-              "RGF93 to NGF-IGN69 height (1)");
+              "ETRS89-FRA [RGF93 v1] to NGF-IGN69 height (1)");
 
     // Several objects have 4326 code, including an area of use, but return
     // the CRS one.
     EXPECT_EQ(factory->getDescriptionText("4326"), "WGS 84");
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(factory, AuthorityFactory_IAU_2015) {
+    auto factory =
+        AuthorityFactory::create(DatabaseContext::create(), "IAU_2015");
+
+    {
+        auto crs = factory->createGeographicCRS("19900");
+        EXPECT_EQ(crs->nameStr(), "Mercury (2015) - Sphere / Ocentric");
+
+        const auto ellps = crs->ellipsoid();
+        EXPECT_TRUE(ellps->isSphere());
+        EXPECT_NEAR(ellps->semiMajorAxis().value(), 2440530.0, 1e-6);
+
+        const auto &axisList = crs->coordinateSystem()->axisList();
+        EXPECT_EQ(axisList.size(), 2U);
+
+        EXPECT_EQ(*(axisList[0]->name()->description()), "Geodetic latitude");
+        EXPECT_EQ(axisList[0]->abbreviation(), "Lat");
+        EXPECT_EQ(axisList[0]->direction(), AxisDirection::NORTH);
+        EXPECT_EQ(axisList[0]->unit(), UnitOfMeasure::DEGREE);
+
+        EXPECT_EQ(*(axisList[1]->name()->description()), "Geodetic longitude");
+        EXPECT_EQ(axisList[1]->abbreviation(), "Lon");
+        EXPECT_EQ(axisList[1]->direction(), AxisDirection::EAST);
+        EXPECT_EQ(axisList[1]->unit(), UnitOfMeasure::DEGREE);
+    }
+
+    {
+        auto crs = factory->createGeographicCRS("19901");
+        EXPECT_EQ(crs->nameStr(), "Mercury (2015) / Ographic");
+
+        const auto ellps = crs->ellipsoid();
+        EXPECT_TRUE(!ellps->isSphere());
+        EXPECT_NEAR(ellps->semiMajorAxis().value(), 2440530.0, 1e-6);
+        EXPECT_NEAR(ellps->computeSemiMinorAxis().value(), 2438260.0, 1e-6);
+
+        const auto &axisList = crs->coordinateSystem()->axisList();
+        EXPECT_EQ(axisList.size(), 2U);
+
+        EXPECT_EQ(*(axisList[0]->name()->description()), "Geodetic latitude");
+        EXPECT_EQ(axisList[0]->abbreviation(), "Lat");
+        EXPECT_EQ(axisList[0]->direction(), AxisDirection::NORTH);
+        EXPECT_EQ(axisList[0]->unit(), UnitOfMeasure::DEGREE);
+
+        EXPECT_EQ(*(axisList[1]->name()->description()), "Geodetic longitude");
+        EXPECT_EQ(axisList[1]->abbreviation(), "Lon");
+        EXPECT_EQ(axisList[1]->direction(), AxisDirection::WEST); // WEST !
+        EXPECT_EQ(axisList[1]->unit(), UnitOfMeasure::DEGREE);
+    }
+
+    {
+        auto crs = factory->createGeodeticCRS("19902");
+        EXPECT_EQ(crs->nameStr(), "Mercury (2015) / Ocentric");
+        EXPECT_TRUE(dynamic_cast<GeographicCRS *>(crs.get()) == nullptr);
+
+        const auto ellps = crs->ellipsoid();
+        EXPECT_TRUE(!ellps->isSphere());
+        EXPECT_NEAR(ellps->semiMajorAxis().value(), 2440530.0, 1e-6);
+        EXPECT_NEAR(ellps->computeSemiMinorAxis().value(), 2438260.0, 1e-6);
+
+        const auto &cs = crs->coordinateSystem();
+        EXPECT_TRUE(dynamic_cast<SphericalCS *>(cs.get()) != nullptr);
+        const auto &axisList = cs->axisList();
+        EXPECT_EQ(axisList.size(), 2U);
+
+        EXPECT_EQ(*(axisList[0]->name()->description()),
+                  "Planetocentric latitude");
+        EXPECT_EQ(axisList[0]->abbreviation(), "U");
+        EXPECT_EQ(axisList[0]->direction(), AxisDirection::NORTH);
+        EXPECT_EQ(axisList[0]->unit(), UnitOfMeasure::DEGREE);
+
+        EXPECT_EQ(*(axisList[1]->name()->description()),
+                  "Planetocentric longitude");
+        EXPECT_EQ(axisList[1]->abbreviation(), "V");
+        EXPECT_EQ(axisList[1]->direction(), AxisDirection::EAST);
+        EXPECT_EQ(axisList[1]->unit(), UnitOfMeasure::DEGREE);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1617,7 +1871,8 @@ class FactoryWithTmpDatabase : public ::testing::Test {
         ASSERT_TRUE(
             execute("INSERT INTO geodetic_datum "
                     "VALUES('EPSG','6326','World Geodetic System 1984','',"
-                    "'EPSG','7030','EPSG','8901',NULL,NULL,NULL,0);"))
+                    "'EPSG','7030','EPSG','8901',NULL,NULL,NULL,"
+                    "'my anchor',NULL,0);"))
             << last_error();
         ASSERT_TRUE(execute("INSERT INTO usage VALUES('EPSG',"
                             "'geodetic_datum_6326_usage','geodetic_datum',"
@@ -1625,7 +1880,7 @@ class FactoryWithTmpDatabase : public ::testing::Test {
             << last_error();
         ASSERT_TRUE(
             execute("INSERT INTO vertical_datum VALUES('EPSG','1027','EGM2008 "
-                    "geoid',NULL,NULL,NULL,NULL,0);"))
+                    "geoid',NULL,NULL,NULL,NULL,'my anchor',NULL,0);"))
             << last_error();
         ASSERT_TRUE(execute("INSERT INTO usage VALUES('EPSG',"
                             "'vertical_datum_1027_usage','vertical_datum',"
@@ -1738,7 +1993,7 @@ class FactoryWithTmpDatabase : public ::testing::Test {
 
         ASSERT_TRUE(execute(
             "INSERT INTO helmert_transformation "
-            "VALUES('EPSG','DUMMY_HELMERT','name',NULL,'EPSG','9603','"
+            "VALUES('EPSG','DUMMY_HELMERT','dummy_helmert',NULL,'EPSG','9603','"
             "Geocentric translations (geog2D domain)','EPSG','4326',"
             "'EPSG','4326',44.0,-143."
             "0,-90.0,-294.0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,"
@@ -1754,11 +2009,14 @@ class FactoryWithTmpDatabase : public ::testing::Test {
 
         ASSERT_TRUE(execute(
             "INSERT INTO grid_transformation "
-            "VALUES('EPSG','DUMMY_GRID_TRANSFORMATION','name',NULL,"
+            "VALUES('EPSG','DUMMY_GRID_TRANSFORMATION',"
+            "'dummy_grid_transformation',NULL,"
             "'EPSG','9615'"
             ",'NTv2','EPSG','4326','EPSG','4326',1.0,'EPSG','"
             "8656','Latitude and longitude difference "
             "file','nzgd2kgrid0005.gsb',NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+            "NULL,NULL,NULL,NULL,NULL,NULL,"
+            "NULL,NULL,NULL,NULL,NULL,NULL,"
             "0);"))
             << last_error();
         ASSERT_TRUE(
@@ -1776,14 +2034,17 @@ class FactoryWithTmpDatabase : public ::testing::Test {
 
         ASSERT_TRUE(execute(
             "INSERT INTO other_transformation "
-            "VALUES('EPSG','DUMMY_OTHER_TRANSFORMATION','name',NULL,"
+            "VALUES('EPSG','DUMMY_OTHER_TRANSFORMATION',"
+            "'dummy_other_transformation',NULL,"
             "'EPSG','9601','Longitude rotation',"
             "'EPSG','4326','EPSG','4326',0.0,'EPSG'"
             ",'8602','Longitude "
             "offset',-17.4,'EPSG','9110',NULL,NULL,NULL,NULL,NULL,NULL,"
             "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
             "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-            "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+            "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+            "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+            "NULL,0);"))
             << last_error();
         ASSERT_TRUE(
             execute("INSERT INTO usage VALUES('EPSG',"
@@ -1794,7 +2055,8 @@ class FactoryWithTmpDatabase : public ::testing::Test {
             << last_error();
 
         ASSERT_TRUE(execute("INSERT INTO concatenated_operation "
-                            "VALUES('EPSG','DUMMY_CONCATENATED','name',NULL,"
+                            "VALUES('EPSG','DUMMY_CONCATENATED',"
+                            "'dummy_concatenated',NULL,"
                             "'EPSG','4326','EPSG'"
                             ",'4326',NULL,NULL,0);"))
             << last_error();
@@ -1807,12 +2069,12 @@ class FactoryWithTmpDatabase : public ::testing::Test {
 
         ASSERT_TRUE(execute("INSERT INTO concatenated_operation_step "
                             "VALUES('EPSG','DUMMY_CONCATENATED',1,"
-                            "'EPSG','DUMMY_OTHER_TRANSFORMATION');"))
+                            "'EPSG','DUMMY_OTHER_TRANSFORMATION',NULL);"))
             << last_error();
 
         ASSERT_TRUE(execute("INSERT INTO concatenated_operation_step "
                             "VALUES('EPSG','DUMMY_CONCATENATED',2,"
-                            "'EPSG','DUMMY_OTHER_TRANSFORMATION');"))
+                            "'EPSG','DUMMY_OTHER_TRANSFORMATION',NULL);"))
             << last_error();
     }
 
@@ -1825,7 +2087,7 @@ class FactoryWithTmpDatabase : public ::testing::Test {
                                 val + "','" + val +
                                 "','',"
                                 "'EPSG','7030','EPSG','8901',"
-                                "NULL,NULL,NULL,0);"))
+                                "NULL,NULL,NULL,NULL,NULL,0);"))
                 << last_error();
             ASSERT_TRUE(execute("INSERT INTO usage VALUES('FOO',"
                                 "'geodetic_datum_" +
@@ -1990,15 +2252,6 @@ class FactoryWithTmpDatabase : public ::testing::Test {
         }
     }
 
-    bool get_table(const char *sql, sqlite3 *db = nullptr) {
-        sqlite3_free_table(m_papszResult);
-        m_papszResult = nullptr;
-        m_nRows = 0;
-        m_nCols = 0;
-        return sqlite3_get_table(db ? db : m_ctxt, sql, &m_papszResult,
-                                 &m_nRows, &m_nCols, nullptr) == SQLITE_OK;
-    }
-
     bool execute(const std::string &sql) {
         return sqlite3_exec(m_ctxt, sql.c_str(), nullptr, nullptr, nullptr) ==
                SQLITE_OK;
@@ -2036,11 +2289,15 @@ TEST_F(FactoryWithTmpDatabase, AuthorityFactory_test_with_fake_EPSG_database) {
     EXPECT_TRUE(nn_dynamic_pointer_cast<Ellipsoid>(
                     factory->createObject("7030")) != nullptr);
 
-    EXPECT_TRUE(nn_dynamic_pointer_cast<GeodeticReferenceFrame>(
-                    factory->createObject("6326")) != nullptr);
+    auto grf = nn_dynamic_pointer_cast<GeodeticReferenceFrame>(
+        factory->createObject("6326"));
+    ASSERT_TRUE(grf != nullptr);
+    EXPECT_EQ(*grf->anchorDefinition(), "my anchor");
 
-    EXPECT_TRUE(nn_dynamic_pointer_cast<VerticalReferenceFrame>(
-                    factory->createObject("1027")) != nullptr);
+    auto vrf = nn_dynamic_pointer_cast<VerticalReferenceFrame>(
+        factory->createObject("1027"));
+    ASSERT_TRUE(vrf != nullptr);
+    EXPECT_EQ(*vrf->anchorDefinition(), "my anchor");
 
     EXPECT_TRUE(nn_dynamic_pointer_cast<GeographicCRS>(
                     factory->createObject("4326")) != nullptr);
@@ -2098,11 +2355,10 @@ TEST(factory, AuthorityFactory_createFromCoordinateReferenceSystemCodes) {
     {
         auto list =
             factory->createFromCoordinateReferenceSystemCodes("4179", "4258");
-        ASSERT_EQ(list.size(), 3U);
+        ASSERT_EQ(list.size(), 2U);
         // Romania has a larger area than Poland (given our approx formula)
-        EXPECT_EQ(list[0]->getEPSGCode(), 15994); // Romania - 3m
-        EXPECT_EQ(list[1]->getEPSGCode(), 15993); // Romania - 10m
-        EXPECT_EQ(list[2]->getEPSGCode(), 1644);  // Poland - 1m
+        EXPECT_EQ(list[0]->getEPSGCode(), 15993); // Romania - 10m
+        EXPECT_EQ(list[1]->getEPSGCode(), 1644);  // Poland - 1m
     }
     {
         // Test removal of superseded transform
@@ -2110,7 +2366,7 @@ TEST(factory, AuthorityFactory_createFromCoordinateReferenceSystemCodes) {
             "EPSG", "4179", "EPSG", "4258", false, false, false, true);
         ASSERT_EQ(list.size(), 2U);
         // Romania has a larger area than Poland (given our approx formula)
-        EXPECT_EQ(list[0]->getEPSGCode(), 15994); // Romania - 3m
+        EXPECT_EQ(list[0]->getEPSGCode(), 15993); // Romania - 10m
         EXPECT_EQ(list[1]->getEPSGCode(), 1644);  // Poland - 1m
     }
 }
@@ -2199,6 +2455,74 @@ TEST(factory, AuthorityFactory_getAvailableGeoidmodels) {
 // ---------------------------------------------------------------------------
 
 TEST_F(FactoryWithTmpDatabase,
+       AuthorityFactory_test_inversion_first_and_last_steps_of_concat_op) {
+    createStructure();
+    populateWithFakeEPSG();
+
+    // Completely dummy, to test proper inversion of first and last
+    // steps in ConcatenatedOperation, when it is needed
+    ASSERT_TRUE(execute("INSERT INTO geodetic_datum "
+                        "VALUES('EPSG','OTHER_DATUM','Other datum','',"
+                        "'EPSG','7030','EPSG','8901',NULL,NULL,NULL,"
+                        "'my anchor',NULL,0);"))
+        << last_error();
+    ASSERT_TRUE(
+        execute("INSERT INTO geodetic_crs VALUES('EPSG','OTHER_GEOG_CRS',"
+                "'OTHER_GEOG_CRS',NULL,'geographic 2D','EPSG','6422',"
+                "'EPSG','OTHER_DATUM',NULL,0);"))
+        << last_error();
+    ASSERT_TRUE(execute(
+        "INSERT INTO other_transformation "
+        "VALUES('EPSG','4326_TO_OTHER_GEOG_CRS',"
+        "'4326_to_other_geog_crs',NULL,"
+        "'EPSG','9601','Longitude rotation',"
+        "'EPSG','4326','EPSG','OTHER_GEOG_CRS',0.0,'EPSG'"
+        ",'8602','Longitude "
+        "offset',-17.4,'EPSG','9110',NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+        << last_error();
+    ASSERT_TRUE(execute(
+        "INSERT INTO other_transformation "
+        "VALUES('EPSG','OTHER_GEOG_CRS_TO_4326',"
+        "'other_geog_crs_to_4326',NULL,"
+        "'EPSG','9601','Longitude rotation',"
+        "'EPSG','OTHER_GEOG_CRS','EPSG','4326',0.0,'EPSG'"
+        ",'8602','Longitude "
+        "offset',17.4,'EPSG','9110',NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+        << last_error();
+    ASSERT_TRUE(execute("INSERT INTO concatenated_operation "
+                        "VALUES('EPSG','DUMMY_CONCATENATED_2',"
+                        "'dummy_concatenated_2',NULL,"
+                        "'EPSG','4326','EPSG'"
+                        ",'4326',NULL,NULL,0);"))
+        << last_error();
+    ASSERT_TRUE(execute("INSERT INTO concatenated_operation_step "
+                        "VALUES('EPSG','DUMMY_CONCATENATED_2',1,"
+                        "'EPSG','OTHER_GEOG_CRS_TO_4326',NULL);"))
+        << last_error();
+
+    ASSERT_TRUE(execute("INSERT INTO concatenated_operation_step "
+                        "VALUES('EPSG','DUMMY_CONCATENATED_2',2,"
+                        "'EPSG','4326_TO_OTHER_GEOG_CRS',NULL);"))
+        << last_error();
+
+    auto factoryEPSG = AuthorityFactory::create(DatabaseContext::create(m_ctxt),
+                                                std::string("EPSG"));
+    EXPECT_TRUE(nn_dynamic_pointer_cast<ConcatenatedOperation>(
+                    factoryEPSG->createObject("DUMMY_CONCATENATED_2")) !=
+                nullptr);
+}
+
+// ---------------------------------------------------------------------------
+
+TEST_F(FactoryWithTmpDatabase,
        AuthorityFactory_test_with_fake_EPSG_and_OTHER_database) {
     createStructure();
     populateWithFakeEPSG();
@@ -2214,7 +2538,7 @@ TEST_F(FactoryWithTmpDatabase,
         << last_error();
 
     ASSERT_TRUE(execute("INSERT INTO projected_crs "
-                        "VALUES('OTHER','OTHER_32631','WGS 84 / UTM zone "
+                        "VALUES('OTHER','OTHER_32631','my WGS 84 / UTM zone "
                         "31N',NULL,'EPSG','4400','OTHER','OTHER_4326',"
                         "'EPSG','16031',NULL,0);"))
         << last_error();
@@ -2251,11 +2575,13 @@ TEST_F(FactoryWithTmpDatabase,
 
     ASSERT_TRUE(execute(
         "INSERT INTO grid_transformation "
-        "VALUES('OTHER','OTHER_GRID_TRANSFORMATION','name',NULL,"
+        "VALUES('OTHER','OTHER_GRID_TRANSFORMATION',"
+        "'other_grid_transformation_2',NULL,"
         "'EPSG','9615'"
         ",'NTv2','EPSG','4326','OTHER','OTHER_4326',1.0,'EPSG','"
         "8656','Latitude and longitude difference "
-        "file','nzgd2kgrid0005.gsb',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+        "file','nzgd2kgrid0005.gsb',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
         << last_error();
     ASSERT_TRUE(execute(
         "INSERT INTO usage VALUES('OTHER',"
@@ -2294,7 +2620,8 @@ TEST_F(FactoryWithTmpDatabase,
         "'EPSG','9615'"
         ",'NTv2','EPSG','4326','EPSG','4326',10.0,'EPSG','"
         "8656','Latitude and longitude difference "
-        "file','nzgd2kgrid0005.gsb',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+        "file','nzgd2kgrid0005.gsb',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
         << last_error();
     ASSERT_TRUE(
         execute("INSERT INTO usage VALUES('OTHER',"
@@ -2309,7 +2636,8 @@ TEST_F(FactoryWithTmpDatabase,
                 "TRANSFORMATION_1M_SMALL_EXTENT',NULL,'EPSG','9615'"
                 ",'NTv2','EPSG','4326','EPSG','4326',1.0,'EPSG','"
                 "8656','Latitude and longitude difference "
-                "file','nzgd2kgrid0005.gsb',NULL,NULL,NULL,NULL,NULL,NULL,"
+                "file','nzgd2kgrid0005.gsb',NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
                 "NULL,0);"))
         << last_error();
     ASSERT_TRUE(
@@ -2326,7 +2654,8 @@ TEST_F(FactoryWithTmpDatabase,
         "'EPSG','9615'"
         ",'NTv2','EPSG','4326','EPSG','4326',1.0,'EPSG','"
         "8656','Latitude and longitude difference "
-        "file','nzgd2kgrid0005.gsb',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+        "file','nzgd2kgrid0005.gsb',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
         << last_error();
     ASSERT_TRUE(
         execute("INSERT INTO usage VALUES('OTHER',"
@@ -2335,14 +2664,14 @@ TEST_F(FactoryWithTmpDatabase,
                 "'OTHER','TRANSFORMATION_1M','EPSG','1262','EPSG','1024');"))
         << last_error();
 
-    ASSERT_TRUE(
-        execute("INSERT INTO grid_transformation "
-                "VALUES('OTHER','TRANSFORMATION_0.5M_DEPRECATED','"
-                "TRANSFORMATION_0.5M_DEPRECATED',NULL,'EPSG','9615'"
-                ",'NTv2','EPSG','4326','EPSG','4326',1.0,'EPSG','"
-                "8656','Latitude and longitude difference "
-                "file','nzgd2kgrid0005.gsb',NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,1);"))
+    ASSERT_TRUE(execute(
+        "INSERT INTO grid_transformation "
+        "VALUES('OTHER','TRANSFORMATION_0.5M_DEPRECATED','"
+        "TRANSFORMATION_0.5M_DEPRECATED',NULL,'EPSG','9615'"
+        ",'NTv2','EPSG','4326','EPSG','4326',1.0,'EPSG','"
+        "8656','Latitude and longitude difference "
+        "file','nzgd2kgrid0005.gsb',NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,1);"))
         << last_error();
     ASSERT_TRUE(
         execute("INSERT INTO usage VALUES('OTHER',"
@@ -2452,7 +2781,8 @@ TEST_F(FactoryWithTmpDatabase, AuthorityFactory_proj_based_transformation) {
         "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
         "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
         "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
         << last_error();
     ASSERT_TRUE(execute("INSERT INTO usage VALUES('OTHER',"
                         "'other_transformation_FOO_usage',"
@@ -2509,17 +2839,18 @@ TEST_F(FactoryWithTmpDatabase, AuthorityFactory_wkt_based_transformation) {
                "    PARAMETER[\"Y-axis translation\",2,UNIT[\"metre\",1]],\n"
                "    PARAMETER[\"Z-axis translation\",3,UNIT[\"metre\",1]]]";
 
-    ASSERT_TRUE(
-        execute("INSERT INTO other_transformation "
-                "VALUES('OTHER','FOO','My WKT string based op',NULL,"
-                "'PROJ','WKT','" +
-                std::string(wkt) +
-                "',"
-                "'EPSG','4326','EPSG','4326',0.0,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+    ASSERT_TRUE(execute(
+        "INSERT INTO other_transformation "
+        "VALUES('OTHER','FOO','My WKT string based op',NULL,"
+        "'PROJ','WKT','" +
+        std::string(wkt) +
+        "',"
+        "'EPSG','4326','EPSG','4326',0.0,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
         << last_error();
     ASSERT_TRUE(execute("INSERT INTO usage VALUES('OTHER',"
                         "'other_transformation_FOO_usage',"
@@ -2550,17 +2881,18 @@ TEST_F(FactoryWithTmpDatabase,
     createStructure();
     populateWithFakeEPSG();
 
-    ASSERT_TRUE(
-        execute("INSERT INTO other_transformation "
-                "VALUES('OTHER','FOO','My WKT string based op',NULL,"
-                "'PROJ','WKT','" +
-                std::string("invalid_wkt") +
-                "',"
-                "'EPSG','4326','EPSG','4326',0.0,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+    ASSERT_TRUE(execute(
+        "INSERT INTO other_transformation "
+        "VALUES('OTHER','FOO','My WKT string based op',NULL,"
+        "'PROJ','WKT','" +
+        std::string("invalid_wkt") +
+        "',"
+        "'EPSG','4326','EPSG','4326',0.0,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
         << last_error();
     ASSERT_TRUE(execute("INSERT INTO usage VALUES('OTHER',"
                         "'other_transformation_FOO_usage',"
@@ -2584,17 +2916,18 @@ TEST_F(FactoryWithTmpDatabase,
     createStructure();
     populateWithFakeEPSG();
 
-    ASSERT_TRUE(
-        execute("INSERT INTO other_transformation "
-                "VALUES('OTHER','FOO','My WKT string based op',NULL,"
-                "'PROJ','WKT','" +
-                std::string("LOCAL_CS[\"foo\"]") +
-                "',"
-                "'EPSG','4326','EPSG','4326',0.0,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+    ASSERT_TRUE(execute(
+        "INSERT INTO other_transformation "
+        "VALUES('OTHER','FOO','My WKT string based op',NULL,"
+        "'PROJ','WKT','" +
+        std::string("LOCAL_CS[\"foo\"]") +
+        "',"
+        "'EPSG','4326','EPSG','4326',0.0,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
         << last_error();
     ASSERT_TRUE(execute("INSERT INTO usage VALUES('OTHER',"
                         "'other_transformation_FOO_usage',"
@@ -2672,6 +3005,47 @@ TEST_F(FactoryWithTmpDatabase, lookForGridInfo) {
     EXPECT_EQ(directDownload, true);
     EXPECT_EQ(openLicense, true);
     EXPECT_EQ(gridAvailable, false);
+}
+
+// ---------------------------------------------------------------------------
+
+TEST_F(FactoryWithTmpDatabase,
+       lookForGridInfo_from_old_name_with_new_grid_available) {
+    createStructure();
+
+    ASSERT_TRUE(execute("INSERT INTO grid_alternatives(original_grid_name,"
+                        "proj_grid_name, "
+                        "old_proj_grid_name, "
+                        "proj_grid_format, "
+                        "proj_method, "
+                        "inverse_direction, "
+                        "package_name, "
+                        "url, direct_download, open_license, directory) "
+                        "VALUES ("
+                        "'NOT-YET-IN-GRID-TRANSFORMATION-original_grid_name', "
+                        "'tests/egm96_15_uncompressed_truncated.tif', "
+                        "'old_name.gtx', "
+                        "'NTv2', "
+                        "'hgridshift', "
+                        "0, "
+                        "NULL, "
+                        "'url', 1, 1, NULL);"))
+        << last_error();
+
+    std::string fullFilename;
+    std::string packageName;
+    std::string url;
+    bool directDownload = false;
+    bool openLicense = false;
+    bool gridAvailable = false;
+    EXPECT_TRUE(DatabaseContext::create(m_ctxt)->lookForGridInfo(
+        "old_name.gtx", false, fullFilename, packageName, url, directDownload,
+        openLicense, gridAvailable));
+    EXPECT_TRUE(
+        fullFilename.find("tests/egm96_15_uncompressed_truncated.tif") !=
+        std::string::npos)
+        << fullFilename;
+    EXPECT_EQ(gridAvailable, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -2767,19 +3141,22 @@ TEST_F(FactoryWithTmpDatabase, custom_projected_crs) {
     populateWithFakeEPSG();
 
     ASSERT_TRUE(execute("INSERT INTO projected_crs "
-                        "VALUES('TEST_NS','TEST','my name',NULL,NULL,"
+                        "VALUES('TEST_NS','TEST',"
+                        "'custom_projected_crs',NULL,NULL,"
                         "NULL,NULL,NULL,NULL,NULL,"
                         "'+proj=mbt_s +unused_flag',0);"))
         << last_error();
 
     ASSERT_TRUE(execute("INSERT INTO projected_crs "
-                        "VALUES('TEST_NS','TEST_BOUND','my name',NULL,"
+                        "VALUES('TEST_NS','TEST_BOUND',"
+                        "'custom_projected_crs2',NULL,"
                         "NULL,NULL,NULL,NULL,NULL,NULL,"
                         "'+proj=mbt_s +unused_flag +towgs84=1,2,3',0);"))
         << last_error();
 
     ASSERT_TRUE(execute("INSERT INTO projected_crs "
-                        "VALUES('TEST_NS','TEST_WRONG','my name',NULL,"
+                        "VALUES('TEST_NS','TEST_WRONG',"
+                        "'custom_projected_crs3',NULL,"
                         "NULL,NULL,NULL,NULL,NULL,NULL,"
                         "'+proj=longlat',0);"))
         << last_error();
@@ -2829,7 +3206,7 @@ TEST_F(FactoryWithTmpDatabase, custom_projected_crs) {
         AuthorityFactory::create(DatabaseContext::create(m_ctxt), "TEST_NS");
     {
         auto crs = factory->createProjectedCRS("TEST");
-        EXPECT_EQ(*(crs->name()->description()), "my name");
+        EXPECT_EQ(*(crs->name()->description()), "custom_projected_crs");
         EXPECT_EQ(crs->identifiers().size(), 1U);
         EXPECT_EQ(crs->derivingConversion()->targetCRS().get(), crs.get());
         EXPECT_EQ(crs->exportToPROJString(PROJStringFormatter::create().get()),
@@ -2838,7 +3215,7 @@ TEST_F(FactoryWithTmpDatabase, custom_projected_crs) {
     }
     {
         auto crs = factory->createProjectedCRS("TEST_BOUND");
-        EXPECT_EQ(*(crs->name()->description()), "my name");
+        EXPECT_EQ(*(crs->name()->description()), "custom_projected_crs2");
         EXPECT_EQ(crs->identifiers().size(), 1U);
         EXPECT_EQ(crs->derivingConversion()->targetCRS().get(), crs.get());
         EXPECT_EQ(crs->exportToPROJString(PROJStringFormatter::create().get()),
@@ -2894,6 +3271,330 @@ TEST_F(FactoryWithTmpDatabase, custom_projected_crs) {
         if (!res.empty()) {
             EXPECT_EQ(res.front().first->nameStr(), "WKT1_GDAL");
         }
+    }
+
+    {
+        const auto list = factory->getCRSInfoList();
+        bool found = false;
+        for (const auto &info : list) {
+            if (info.authName == "TEST_NS" && info.code == "TEST_BOUND") {
+                found = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(found);
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+TEST_F(FactoryWithTmpDatabase, custom_derived_projected_crs) {
+    createStructure();
+    populateWithFakeEPSG();
+
+    // Register a conversion for the deriving step (affine identity, no params)
+    // conversion_table: auth_name,code,name,description,method_auth_name,
+    //   method_code, then 7x(param_auth_name,param_code,param_value,
+    //   param_uom_auth_name,param_uom_code), deprecated = 42 cols total
+    ASSERT_TRUE(
+        execute("INSERT INTO conversion_table VALUES('TEST_NS','DERIVING_CONV',"
+                "'Deriving conversion',NULL,'EPSG','9807',"
+                "NULL,NULL,NULL,NULL,NULL," // param1
+                "NULL,NULL,NULL,NULL,NULL," // param2
+                "NULL,NULL,NULL,NULL,NULL," // param3
+                "NULL,NULL,NULL,NULL,NULL," // param4
+                "NULL,NULL,NULL,NULL,NULL," // param5
+                "NULL,NULL,NULL,NULL,NULL," // param6
+                "NULL,NULL,NULL,NULL,NULL," // param7
+                "0);"))
+        << last_error();
+    ASSERT_TRUE(execute("INSERT INTO usage VALUES('TEST_NS',"
+                        "'deriving_conv_usage','conversion',"
+                        "'TEST_NS','DERIVING_CONV',"
+                        "'EPSG','1262','EPSG','1024');"))
+        << last_error();
+
+    // Relational registration of a derived_projected_crs
+    ASSERT_TRUE(execute("INSERT INTO derived_projected_crs "
+                        "VALUES('TEST_NS','DERIVED1',"
+                        "'my derived projected crs',NULL,"
+                        "'EPSG','4400',"  // Cartesian 2D CS
+                        "'EPSG','32631'," // base: UTM zone 31N
+                        "'TEST_NS','DERIVING_CONV',"
+                        "NULL,0);"))
+        << last_error();
+    ASSERT_TRUE(execute("INSERT INTO usage VALUES('TEST_NS',"
+                        "'derived1_usage','derived_projected_crs',"
+                        "'TEST_NS','DERIVED1',"
+                        "'EPSG','1262','EPSG','1024');"))
+        << last_error();
+
+    // text_definition registration of a derived_projected_crs
+    ASSERT_TRUE(execute(
+        "INSERT INTO derived_projected_crs "
+        "VALUES('TEST_NS','DERIVED2',"
+        "'my derived projected crs text_def',NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,"
+        "'"
+        "DERIVEDPROJCRS[\"my derived projected crs text_def\","
+        "  BASEPROJCRS[\"WGS 84 / UTM zone 31N\","
+        "    BASEGEOGCRS[\"WGS 84\","
+        "      DATUM[\"World Geodetic System 1984\","
+        "        ELLIPSOID[\"WGS 84\",6378137,298.257223563,"
+        "          LENGTHUNIT[\"metre\",1]]],"
+        "      "
+        "PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433]],"
+        "      CS[ellipsoidal,2],"
+        "        AXIS[\"latitude\",north],AXIS[\"longitude\",east],"
+        "        ANGLEUNIT[\"degree\",0.0174532925199433]],"
+        "    CONVERSION[\"UTM zone 31N\",METHOD[\"Transverse Mercator\"],"
+        "      PARAMETER[\"Latitude of natural origin\",0,"
+        "        ANGLEUNIT[\"degree\",0.0174532925199433]],"
+        "      PARAMETER[\"Longitude of natural origin\",3,"
+        "        ANGLEUNIT[\"degree\",0.0174532925199433]],"
+        "      PARAMETER[\"Scale factor at natural origin\",0.9996,"
+        "        SCALEUNIT[\"unity\",1]],"
+        "      PARAMETER[\"False easting\",500000,LENGTHUNIT[\"metre\",1]],"
+        "      PARAMETER[\"False northing\",0,LENGTHUNIT[\"metre\",1]]]],"
+        "  DERIVINGCONVERSION[\"Deriving conversion\","
+        "    METHOD[\"Transverse Mercator\"]],"
+        "  CS[Cartesian,2],"
+        "    AXIS[\"easting (E)\",east,LENGTHUNIT[\"metre\",1]],"
+        "    AXIS[\"northing (N)\",north,LENGTHUNIT[\"metre\",1]]]"
+        "',0);"))
+        << last_error();
+
+    // Registering a PROJCRS WKT in derived_projected_crs should fail clearly
+    ASSERT_TRUE(execute("INSERT INTO derived_projected_crs "
+                        "VALUES('TEST_NS','DERIVED_WRONG',"
+                        "'wrong',NULL,"
+                        "NULL,NULL,NULL,NULL,NULL,NULL,"
+                        "'+proj=utm +zone=31',0);"))
+        << last_error();
+
+    // Registering a DERIVEDPROJCRS WKT in projected_crs should give a
+    // directed error
+    ASSERT_TRUE(execute(
+        "INSERT INTO projected_crs "
+        "VALUES('TEST_NS','PROJ_WITH_DERIVED_WKT',"
+        "'proj with derived wkt',NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,"
+        "'"
+        "DERIVEDPROJCRS[\"test\","
+        "  BASEPROJCRS[\"WGS 84 / UTM zone 31N\","
+        "    BASEGEOGCRS[\"WGS 84\","
+        "      DATUM[\"World Geodetic System 1984\","
+        "        ELLIPSOID[\"WGS 84\",6378137,298.257223563,"
+        "          LENGTHUNIT[\"metre\",1]]],"
+        "      "
+        "PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433]],"
+        "      CS[ellipsoidal,2],"
+        "        AXIS[\"latitude\",north],AXIS[\"longitude\",east],"
+        "        ANGLEUNIT[\"degree\",0.0174532925199433]],"
+        "    CONVERSION[\"UTM zone 31N\",METHOD[\"Transverse Mercator\"],"
+        "      PARAMETER[\"Latitude of natural origin\",0,"
+        "        ANGLEUNIT[\"degree\",0.0174532925199433]],"
+        "      PARAMETER[\"Longitude of natural origin\",3,"
+        "        ANGLEUNIT[\"degree\",0.0174532925199433]],"
+        "      PARAMETER[\"Scale factor at natural origin\",0.9996,"
+        "        SCALEUNIT[\"unity\",1]],"
+        "      PARAMETER[\"False easting\",500000,LENGTHUNIT[\"metre\",1]],"
+        "      PARAMETER[\"False northing\",0,LENGTHUNIT[\"metre\",1]]]],"
+        "  DERIVINGCONVERSION[\"test\",METHOD[\"Transverse Mercator\"]],"
+        "  CS[Cartesian,2],"
+        "    AXIS[\"easting (E)\",east,LENGTHUNIT[\"metre\",1]],"
+        "    AXIS[\"northing (N)\",north,LENGTHUNIT[\"metre\",1]]]"
+        "',0);"))
+        << last_error();
+
+    // Trigger: duplicate (auth_name, code) already in crs_view
+    EXPECT_FALSE(execute("INSERT INTO derived_projected_crs "
+                         "VALUES('EPSG','32631','duplicate',NULL,"
+                         "'EPSG','4400','EPSG','32631',"
+                         "'TEST_NS','DERIVING_CONV',NULL,0);"))
+        << "should reject: code already exists in crs_view as projected_crs";
+
+    // Trigger: base_crs deprecated
+    ASSERT_TRUE(execute("UPDATE projected_crs SET deprecated=1 "
+                        "WHERE auth_name='EPSG' AND code='32631';"))
+        << last_error();
+    EXPECT_FALSE(execute("INSERT INTO derived_projected_crs "
+                         "VALUES('TEST_NS','DERIVED_DEP_BASE','dep base',NULL,"
+                         "'EPSG','4400','EPSG','32631',"
+                         "'TEST_NS','DERIVING_CONV',NULL,0);"))
+        << "should reject: base_crs is deprecated";
+    ASSERT_TRUE(execute("UPDATE projected_crs SET deprecated=0 "
+                        "WHERE auth_name='EPSG' AND code='32631';"))
+        << last_error();
+
+    // Trigger: conversion missing when text_definition is NULL
+    EXPECT_FALSE(execute("INSERT INTO derived_projected_crs "
+                         "VALUES('TEST_NS','DERIVED_NO_CONV','no conv',NULL,"
+                         "'EPSG','4400','EPSG','32631',"
+                         "NULL,NULL,NULL,0);"))
+        << "should reject: no conversion and no text_definition";
+
+    // Trigger: coordinate_system type not in permitted set (ellipsoidal)
+    EXPECT_FALSE(
+        execute("INSERT INTO derived_projected_crs "
+                "VALUES('TEST_NS','DERIVED_ELLIPS_CS','ellips cs',NULL,"
+                "'EPSG','6422','EPSG','32631',"
+                "'TEST_NS','DERIVING_CONV',NULL,0);"))
+        << "should reject: CS type 'ellipsoidal' not in permitted set";
+
+    // Trigger: coordinate_system type not in permitted set (vertical, dim=1)
+    EXPECT_FALSE(execute("INSERT INTO derived_projected_crs "
+                         "VALUES('TEST_NS','DERIVED_VERT_CS','vert cs',NULL,"
+                         "'EPSG','6499','EPSG','32631',"
+                         "'TEST_NS','DERIVING_CONV',NULL,0);"))
+        << "should reject: CS type 'vertical' not in permitted set";
+
+    auto factory =
+        AuthorityFactory::create(DatabaseContext::create(m_ctxt), "TEST_NS");
+
+    // Relational lookup
+    {
+        auto crs = factory->createDerivedProjectedCRS("DERIVED1");
+        EXPECT_EQ(crs->nameStr(), "my derived projected crs");
+        EXPECT_EQ(crs->identifiers().size(), 1U);
+        EXPECT_TRUE(nn_dynamic_pointer_cast<ProjectedCRS>(crs->baseCRS()) !=
+                    nullptr);
+        EXPECT_EQ(crs->baseCRS()->nameStr(), "WGS 84 / UTM zone 31N");
+    }
+
+    // createCoordinateReferenceSystem dispatches correctly
+    {
+        auto crs = factory->createCoordinateReferenceSystem("DERIVED1");
+        EXPECT_TRUE(nn_dynamic_pointer_cast<DerivedProjectedCRS>(crs) !=
+                    nullptr);
+    }
+
+    // text_definition lookup
+    {
+        auto crs = factory->createDerivedProjectedCRS("DERIVED2");
+        EXPECT_EQ(crs->nameStr(), "my derived projected crs text_def");
+        EXPECT_TRUE(nn_dynamic_pointer_cast<ProjectedCRS>(crs->baseCRS()) !=
+                    nullptr);
+    }
+
+    // text_definition that is not a DERIVEDPROJCRS gives a clear error
+    EXPECT_THROW(factory->createDerivedProjectedCRS("DERIVED_WRONG"),
+                 FactoryException);
+
+    // DERIVEDPROJCRS WKT in projected_crs table throws
+    EXPECT_THROW(factory->createProjectedCRS("PROJ_WITH_DERIVED_WKT"),
+                 FactoryException);
+
+    // getAuthorityCodes
+    {
+        auto codes = factory->getAuthorityCodes(
+            AuthorityFactory::ObjectType::DERIVED_PROJECTED_CRS);
+        EXPECT_EQ(codes.size(), 3U);
+        EXPECT_TRUE(codes.count("DERIVED1") == 1);
+    }
+
+    // getDescriptionText
+    {
+        EXPECT_EQ(factory->getDescriptionText("DERIVED1"),
+                  "my derived projected crs");
+    }
+
+    // getCRSInfoList
+    {
+        auto list = factory->getCRSInfoList();
+        bool found = false;
+        for (const auto &info : list) {
+            if (info.authName == "TEST_NS" && info.code == "DERIVED1") {
+                found = true;
+                EXPECT_EQ(info.name, "my derived projected crs");
+                EXPECT_EQ(info.type,
+                          AuthorityFactory::ObjectType::DERIVED_PROJECTED_CRS);
+                break;
+            }
+        }
+        EXPECT_TRUE(found) << "DERIVED1 not found in getCRSInfoList()";
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+TEST_F(FactoryWithTmpDatabase, CoordinateMetadata) {
+    createStructure();
+    populateWithFakeEPSG();
+
+    ASSERT_TRUE(execute("INSERT INTO coordinate_metadata "
+                        "VALUES('TEST_NS','TEST','my desc','EPSG',4326,"
+                        "NULL,2020.1,0);"))
+        << last_error();
+
+    const std::string wkt =
+        "GEOGCRS[\"WGS 84\",\n"
+        "    ENSEMBLE[\"World Geodetic System 1984 ensemble\",\n"
+        "        MEMBER[\"World Geodetic System 1984 (Transit)\"],\n"
+        "        MEMBER[\"World Geodetic System 1984 (G730)\"],\n"
+        "        MEMBER[\"World Geodetic System 1984 (G873)\"],\n"
+        "        MEMBER[\"World Geodetic System 1984 (G1150)\"],\n"
+        "        MEMBER[\"World Geodetic System 1984 (G1674)\"],\n"
+        "        MEMBER[\"World Geodetic System 1984 (G1762)\"],\n"
+        "        MEMBER[\"World Geodetic System 1984 (G2139)\"],\n"
+        "        ELLIPSOID[\"WGS 84\",6378137,298.257223563,\n"
+        "            LENGTHUNIT[\"metre\",1]],\n"
+        "        ENSEMBLEACCURACY[2.0]],\n"
+        "    PRIMEM[\"Greenwich\",0,\n"
+        "        ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+        "    CS[ellipsoidal,2],\n"
+        "        AXIS[\"geodetic latitude (Lat)\",north,\n"
+        "            ORDER[1],\n"
+        "            ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+        "        AXIS[\"geodetic longitude (Lon)\",east,\n"
+        "            ORDER[2],\n"
+        "            ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+        "    USAGE[\n"
+        "        SCOPE[\"Horizontal component of 3D system.\"],\n"
+        "        AREA[\"World.\"],\n"
+        "        BBOX[-90,-180,90,180]],\n"
+        "    ID[\"EPSG\",4326]]";
+    ASSERT_TRUE(execute("INSERT INTO coordinate_metadata "
+                        "VALUES('TEST_NS','TEST2','my desc',NULL,NULL,"
+                        "'" +
+                        wkt + "',2021.1,0);"))
+        << last_error();
+
+    ASSERT_TRUE(execute("INSERT INTO coordinate_metadata "
+                        "VALUES('TEST_NS','TEST_NO_EPOCH','my desc',"
+                        "'EPSG',4326,NULL,NULL,0);"))
+        << last_error();
+
+    auto dbContext = DatabaseContext::create(m_ctxt);
+    auto factoryEPSG = AuthorityFactory::create(dbContext, "EPSG");
+    auto crs_4326 = factoryEPSG->createCoordinateReferenceSystem("4326");
+    auto factory = AuthorityFactory::create(dbContext, "TEST_NS");
+    {
+        auto cm = factory->createCoordinateMetadata("TEST");
+        EXPECT_TRUE(cm->crs()->isEquivalentTo(crs_4326.get()));
+        EXPECT_TRUE(cm->coordinateEpoch().has_value());
+        EXPECT_NEAR(cm->coordinateEpochAsDecimalYear(), 2020.1, 1e-10);
+    }
+    {
+        auto cm = factory->createCoordinateMetadata("TEST2");
+        EXPECT_TRUE(cm->crs()->isEquivalentTo(
+            crs_4326.get(), IComparable::Criterion::EQUIVALENT));
+        EXPECT_TRUE(cm->coordinateEpoch().has_value());
+        EXPECT_NEAR(cm->coordinateEpochAsDecimalYear(), 2021.1, 1e-10);
+    }
+    {
+        auto cm = factory->createCoordinateMetadata("TEST_NO_EPOCH");
+        EXPECT_TRUE(cm->crs()->isEquivalentTo(crs_4326.get()));
+        EXPECT_FALSE(cm->coordinateEpoch().has_value());
+    }
+    {
+        auto obj = createFromUserInput(
+            "urn:ogc:def:coordinateMetadata:TEST_NS::TEST", dbContext, true);
+        auto cm = dynamic_cast<CoordinateMetadata *>(obj.get());
+        ASSERT_TRUE(cm != nullptr);
+        EXPECT_TRUE(cm->crs()->isEquivalentTo(crs_4326.get()));
+        EXPECT_TRUE(cm->coordinateEpoch().has_value());
+        EXPECT_NEAR(cm->coordinateEpochAsDecimalYear(), 2020.1, 1e-10);
     }
 }
 
@@ -3064,32 +3765,34 @@ TEST_F(FactoryWithTmpDatabase,
     createStructure();
     populateWithFakeEPSG();
 
-    ASSERT_TRUE(
-        execute("INSERT INTO other_transformation "
-                "VALUES('OTHER','PARTIAL_AREA_PERFECT_ACCURACY',"
-                "'PARTIAL_AREA_PERFECT_ACCURACY',NULL,'PROJ',"
-                "'PROJString','+proj=helmert +x=1',"
-                "'EPSG','4326','EPSG','4326',0.0,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+    ASSERT_TRUE(execute(
+        "INSERT INTO other_transformation "
+        "VALUES('OTHER','PARTIAL_AREA_PERFECT_ACCURACY',"
+        "'PARTIAL_AREA_PERFECT_ACCURACY',NULL,'PROJ',"
+        "'PROJString','+proj=helmert +x=1',"
+        "'EPSG','4326','EPSG','4326',0.0,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
         << last_error();
     ASSERT_TRUE(execute("INSERT INTO usage VALUES('OTHER', "
                         "'1','other_transformation','OTHER','PARTIAL_AREA_"
                         "PERFECT_ACCURACY','EPSG','1933','EPSG','1024')"))
         << last_error();
 
-    ASSERT_TRUE(
-        execute("INSERT INTO other_transformation "
-                "VALUES('OTHER','WHOLE_AREA_APPROX_ACCURACY',"
-                "'WHOLE_AREA_APPROX_ACCURACY',NULL,'PROJ',"
-                "'PROJString','+proj=helmert +x=2',"
-                "'EPSG','4326','EPSG','4326',1.0,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+    ASSERT_TRUE(execute(
+        "INSERT INTO other_transformation "
+        "VALUES('OTHER','WHOLE_AREA_APPROX_ACCURACY',"
+        "'WHOLE_AREA_APPROX_ACCURACY',NULL,'PROJ',"
+        "'PROJString','+proj=helmert +x=2',"
+        "'EPSG','4326','EPSG','4326',1.0,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
         << last_error();
     ASSERT_TRUE(execute("INSERT INTO usage VALUES('OTHER', "
                         "'2','other_transformation','OTHER','WHOLE_AREA_APPROX_"
@@ -3111,6 +3814,119 @@ TEST_F(FactoryWithTmpDatabase,
     ASSERT_EQ(list.size(), 2U);
     EXPECT_EQ(list[0]->nameStr(), "WHOLE_AREA_APPROX_ACCURACY");
     EXPECT_EQ(list[1]->nameStr(), "PARTIAL_AREA_PERFECT_ACCURACY");
+}
+
+// ---------------------------------------------------------------------------
+
+TEST_F(FactoryWithTmpDatabase,
+       check_fixup_direction_concatenated_inverse_map_projection) {
+
+    // This tests https://github.com/OSGeo/PROJ/issues/2817
+
+    createStructure();
+    populateWithFakeEPSG();
+
+    ASSERT_TRUE(execute(
+        "INSERT INTO other_transformation "
+        "VALUES('EPSG','NOOP_TRANSFORMATION_32631',"
+        "'NOOP_TRANSFORMATION_32631',NULL,"
+        "'PROJ','PROJString','+proj=noop',"
+        "'EPSG','32631','EPSG','32631',0.0,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+        << last_error();
+
+    ASSERT_TRUE(
+        execute("INSERT INTO usage VALUES('EPSG',"
+                "'other_transformation_NOOP_TRANSFORMATION_32631_usage',"
+                "'other_transformation',"
+                "'EPSG','NOOP_TRANSFORMATION_32631',"
+                "'EPSG','1262','EPSG','1024');"))
+        << last_error();
+
+    ASSERT_TRUE(execute(
+        "INSERT INTO other_transformation "
+        "VALUES('EPSG','NOOP_TRANSFORMATION_4326',"
+        "'NOOP_TRANSFORMATION_4326',NULL,"
+        "'PROJ','PROJString','+proj=noop',"
+        "'EPSG','4326','EPSG','4326',0.0,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
+        "NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);"))
+        << last_error();
+
+    ASSERT_TRUE(execute("INSERT INTO usage VALUES('EPSG',"
+                        "'other_transformation_NOOP_TRANSFORMATION_4326_usage',"
+                        "'other_transformation',"
+                        "'EPSG','NOOP_TRANSFORMATION_4326',"
+                        "'EPSG','1262','EPSG','1024');"))
+        << last_error();
+
+    ASSERT_TRUE(execute("INSERT INTO concatenated_operation "
+                        "VALUES('EPSG','TEST_CONCATENATED','name',NULL,"
+                        "'EPSG','4326','EPSG'"
+                        ",'4326',NULL,NULL,0);"))
+        << last_error();
+    ASSERT_TRUE(execute("INSERT INTO usage VALUES('EPSG',"
+                        "'concatenated_operation_TEST_CONCATENATED_usage',"
+                        "'concatenated_operation',"
+                        "'EPSG','TEST_CONCATENATED',"
+                        "'EPSG','1262','EPSG','1024');"))
+        << last_error();
+
+    // Forward map projection
+    ASSERT_TRUE(execute("INSERT INTO concatenated_operation_step "
+                        "VALUES('EPSG','TEST_CONCATENATED',1,"
+                        "'EPSG','16031',NULL);"))
+        << last_error();
+
+    // Noop projected
+    ASSERT_TRUE(execute("INSERT INTO concatenated_operation_step "
+                        "VALUES('EPSG','TEST_CONCATENATED',2,"
+                        "'EPSG','NOOP_TRANSFORMATION_32631',NULL);"))
+        << last_error();
+
+    // Inverse map projection
+    ASSERT_TRUE(execute("INSERT INTO concatenated_operation_step "
+                        "VALUES('EPSG','TEST_CONCATENATED',3,"
+                        "'EPSG','16031',NULL);"))
+        << last_error();
+
+    // Noop geographic
+    ASSERT_TRUE(execute("INSERT INTO concatenated_operation_step "
+                        "VALUES('EPSG','TEST_CONCATENATED',4,"
+                        "'EPSG','NOOP_TRANSFORMATION_4326',NULL);"))
+        << last_error();
+
+    // Forward map projection
+    ASSERT_TRUE(execute("INSERT INTO concatenated_operation_step "
+                        "VALUES('EPSG','TEST_CONCATENATED',5,"
+                        "'EPSG','16031',NULL);"))
+        << last_error();
+
+    // Noop projected
+    ASSERT_TRUE(execute("INSERT INTO concatenated_operation_step "
+                        "VALUES('EPSG','TEST_CONCATENATED',6,"
+                        "'EPSG','NOOP_TRANSFORMATION_32631',NULL);"))
+        << last_error();
+
+    // Inverse map projection
+    ASSERT_TRUE(execute("INSERT INTO concatenated_operation_step "
+                        "VALUES('EPSG','TEST_CONCATENATED',7,"
+                        "'EPSG','16031',NULL);"))
+        << last_error();
+
+    auto dbContext = DatabaseContext::create(m_ctxt);
+    auto authFactory = AuthorityFactory::create(dbContext, std::string("EPSG"));
+    const auto op =
+        authFactory->createCoordinateOperation("TEST_CONCATENATED", false);
+    auto wkt = op->exportToPROJString(PROJStringFormatter::create().get());
+    EXPECT_EQ(wkt, "+proj=noop");
 }
 
 // ---------------------------------------------------------------------------
@@ -3147,7 +3963,7 @@ TEST(factory, createObjectsFromName) {
         // EPSG:4326 and the 6 WGS84 realizations
         // and EPSG:7881 'Tritan St. Helena'' whose alias is
         // 'WGS 84 Tritan St. Helena'
-        EXPECT_EQ(res.size(), 8U);
+        EXPECT_EQ(res.size(), 10U);
         if (!res.empty()) {
             EXPECT_EQ(res.front()->getEPSGCode(), 4326);
         }
@@ -3182,6 +3998,13 @@ TEST(factory, createObjectsFromName) {
     EXPECT_EQ(factoryEPSG->createObjectsFromName("EGM2008 geoid", {}, false, 2)
                   .size(),
               1U);
+    // Engineering datum
+    EXPECT_EQ(
+        factoryEPSG
+            ->createObjectsFromName("Christmas Island Datum 1985", {}, false, 2)
+            .size(),
+        1U);
+
     // Geodetic CRS
     EXPECT_EQ(factoryEPSG
                   ->createObjectsFromName(
@@ -3206,6 +4029,12 @@ TEST(factory, createObjectsFromName) {
                       {}, false, 2)
                   .size(),
               1U);
+    // Engineering CRS
+    EXPECT_EQ(
+        factoryEPSG
+            ->createObjectsFromName("Christmas Island Grid 1985", {}, false, 2)
+            .size(),
+        1U);
     // Conversion
     EXPECT_EQ(
         factoryEPSG->createObjectsFromName("Belgian Lambert 2008", {}, false, 2)
@@ -3259,6 +4088,7 @@ TEST(factory, createObjectsFromName) {
                   .size(),
               1U);
 
+#ifdef no_more_dynamic_vertical_datum
     // Dynamic Vertical datum
     EXPECT_EQ(
         factoryEPSG
@@ -3268,6 +4098,7 @@ TEST(factory, createObjectsFromName) {
                                     false, 2)
             .size(),
         1U);
+#endif
 
     {
         auto res = factory->createObjectsFromName(
@@ -3300,6 +4131,7 @@ TEST(factory, createObjectsFromName) {
         AuthorityFactory::ObjectType::DYNAMIC_GEODETIC_REFERENCE_FRAME,
         AuthorityFactory::ObjectType::VERTICAL_REFERENCE_FRAME,
         AuthorityFactory::ObjectType::DYNAMIC_VERTICAL_REFERENCE_FRAME,
+        AuthorityFactory::ObjectType::ENGINEERING_DATUM,
         AuthorityFactory::ObjectType::CRS,
         AuthorityFactory::ObjectType::GEODETIC_CRS,
         AuthorityFactory::ObjectType::GEOCENTRIC_CRS,
@@ -3309,6 +4141,7 @@ TEST(factory, createObjectsFromName) {
         AuthorityFactory::ObjectType::PROJECTED_CRS,
         AuthorityFactory::ObjectType::VERTICAL_CRS,
         AuthorityFactory::ObjectType::COMPOUND_CRS,
+        AuthorityFactory::ObjectType::ENGINEERING_CRS,
         AuthorityFactory::ObjectType::COORDINATE_OPERATION,
         AuthorityFactory::ObjectType::CONVERSION,
         AuthorityFactory::ObjectType::TRANSFORMATION,
@@ -3374,16 +4207,22 @@ TEST(factory, getCRSInfoList) {
         bool foundEPSG = false;
         bool foundIGNF = false;
         bool found4326 = false;
+        bool foundIAU_2015_19902 = false;
         for (const auto &info : list) {
             foundEPSG |= info.authName == "EPSG";
             foundIGNF |= info.authName == "IGNF";
             if (info.authName == "EPSG" && info.code == "4326") {
                 found4326 = true;
+            } else if (info.authName == "IAU_2015" && info.code == "19902") {
+                foundIAU_2015_19902 = true;
+                EXPECT_EQ(info.type,
+                          AuthorityFactory::ObjectType::GEODETIC_CRS);
             }
         }
         EXPECT_TRUE(foundEPSG);
         EXPECT_TRUE(foundIGNF);
         EXPECT_TRUE(found4326);
+        EXPECT_TRUE(foundIAU_2015_19902);
     }
     {
         auto factory = AuthorityFactory::create(ctxt, "EPSG");
@@ -3407,7 +4246,8 @@ TEST(factory, getCRSInfoList) {
                 EXPECT_EQ(info.south_lat_degree, -90.0);
                 EXPECT_EQ(info.east_lon_degree, 180.0);
                 EXPECT_EQ(info.north_lat_degree, 90.0);
-                EXPECT_EQ(info.areaName, "World.");
+                EXPECT_TRUE(std::string(info.areaName).find("World") == 0)
+                    << std::string(info.areaName);
                 EXPECT_TRUE(info.projectionMethodName.empty());
                 found4326 = true;
             } else if (info.code == "4296") { // Soudan - deprecated
@@ -3578,7 +4418,7 @@ TEST(factory, objectInsertion) {
 
     {
         auto ctxt = DatabaseContext::create();
-        // Tolerated withtout explicit stop
+        // Tolerated without explicit stop
         ctxt->startInsertStatementsSession();
     }
 
@@ -3754,8 +4594,10 @@ TEST(factory, objectInsertion) {
         auto ctxt = DatabaseContext::create();
         ctxt->startInsertStatementsSession();
         const auto datum = GeodeticReferenceFrame::create(
-            PropertyMap().set(IdentifiedObject::NAME_KEY, "my datum"),
-            Ellipsoid::WGS84, optional<std::string>(),
+            PropertyMap()
+                .set(IdentifiedObject::NAME_KEY, "my datum")
+                .set("ANCHOR_EPOCH", "2023"),
+            Ellipsoid::WGS84, optional<std::string>("my anchor"),
             PrimeMeridian::GREENWICH);
         const auto crs = GeographicCRS::create(
             PropertyMap().set(IdentifiedObject::NAME_KEY, "my EPSG:4326"),
@@ -3765,7 +4607,8 @@ TEST(factory, objectInsertion) {
         ASSERT_EQ(sql.size(), 4U);
         EXPECT_EQ(sql[0],
                   "INSERT INTO geodetic_datum VALUES('HOBU','1','my "
-                  "datum','','EPSG','7030','EPSG','8901',NULL,NULL,NULL,0);");
+                  "datum','','EPSG','7030','EPSG','8901',NULL,NULL,NULL,"
+                  "'my anchor',2023.000,0);");
         const auto identified =
             crs->identify(AuthorityFactory::create(ctxt, std::string()));
         ASSERT_EQ(identified.size(), 1U);
@@ -3800,7 +4643,8 @@ TEST(factory, objectInsertion) {
         EXPECT_EQ(sql[0],
                   "INSERT INTO geodetic_datum "
                   "VALUES('HOBU','GEODETIC_DATUM_MY_EPSG_4326','my "
-                  "datum','','EPSG','7030','EPSG','8901',NULL,NULL,NULL,0);");
+                  "datum','','EPSG','7030','EPSG','8901',NULL,NULL,NULL,NULL,"
+                  "NULL,0);");
         const auto identified =
             crs->identify(AuthorityFactory::create(ctxt, std::string()));
         ASSERT_EQ(identified.size(), 1U);
@@ -3832,10 +4676,9 @@ TEST(factory, objectInsertion) {
         const auto sql =
             ctxt->getInsertStatementsFor(crs, "HOBU", "XXXX", true);
         ASSERT_EQ(sql.size(), 5U);
-        EXPECT_EQ(
-            sql[0],
-            "INSERT INTO ellipsoid VALUES('HOBU','1','my "
-            "ellipsoid','','PROJ','EARTH',6378137,'EPSG','9001',295,NULL,0);");
+        EXPECT_EQ(sql[0], "INSERT INTO ellipsoid VALUES('HOBU','1','my "
+                          "ellipsoid','','IAU_2015','399',6378137,'EPSG','9001'"
+                          ",295,NULL,0);");
         const auto identified =
             crs->identify(AuthorityFactory::create(ctxt, std::string()));
         ASSERT_EQ(identified.size(), 1U);
@@ -3868,7 +4711,8 @@ TEST(factory, objectInsertion) {
         ASSERT_EQ(sql.size(), 5U);
         EXPECT_EQ(sql[0], "INSERT INTO ellipsoid "
                           "VALUES('HOBU','ELLPS_GEODETIC_DATUM_XXXX','my "
-                          "ellipsoid','','PROJ','EARTH',6378137,'EPSG','9001',"
+                          "ellipsoid','','IAU_2015','399',6378137,"
+                          "'EPSG','9001',"
                           "NULL,6378136,0);");
         const auto identified =
             crs->identify(AuthorityFactory::create(ctxt, std::string()));
@@ -4053,7 +4897,8 @@ TEST(factory, objectInsertion) {
         ctxt->startInsertStatementsSession();
         PropertyMap propertiesVDatum;
         propertiesVDatum.set(IdentifiedObject::NAME_KEY, "my datum");
-        auto vdatum = VerticalReferenceFrame::create(propertiesVDatum);
+        auto vdatum = VerticalReferenceFrame::create(
+            propertiesVDatum, optional<std::string>("my anchor"));
         PropertyMap propertiesCRS;
         propertiesCRS.set(IdentifiedObject::NAME_KEY, "my height");
         const auto crs = VerticalCRS::create(
@@ -4062,9 +4907,9 @@ TEST(factory, objectInsertion) {
         const auto sql =
             ctxt->getInsertStatementsFor(crs, "HOBU", "XXXX", false);
         ASSERT_EQ(sql.size(), 4U);
-        EXPECT_EQ(sql[0],
-                  "INSERT INTO vertical_datum VALUES('HOBU',"
-                  "'VERTICAL_DATUM_XXXX','my datum','',NULL,NULL,NULL,0);");
+        EXPECT_EQ(sql[0], "INSERT INTO vertical_datum VALUES('HOBU',"
+                          "'VERTICAL_DATUM_XXXX','my datum','',NULL,NULL,NULL,"
+                          "'my anchor',NULL,0);");
         const auto identified =
             crs->identify(AuthorityFactory::create(ctxt, std::string()));
         ASSERT_EQ(identified.size(), 1U);
@@ -4076,6 +4921,40 @@ TEST(factory, objectInsertion) {
         EXPECT_EQ(identified.front().second, 100);
         EXPECT_TRUE(
             ctxt->getInsertStatementsFor(crs, "HOBU", "XXXX", false).empty());
+        ctxt->stopInsertStatementsSession();
+    }
+
+    // Same as above with ANCHOR_EPOCH
+    {
+        auto ctxt = DatabaseContext::create();
+        ctxt->startInsertStatementsSession();
+        PropertyMap propertiesVDatum;
+        propertiesVDatum.set(IdentifiedObject::NAME_KEY, "my datum");
+        propertiesVDatum.set("ANCHOR_EPOCH", "2023");
+        auto vdatum = VerticalReferenceFrame::create(
+            propertiesVDatum, optional<std::string>("my anchor"));
+        PropertyMap propertiesCRS;
+        propertiesCRS.set(IdentifiedObject::NAME_KEY, "my height");
+        const auto crs = VerticalCRS::create(
+            propertiesCRS, vdatum,
+            VerticalCS::createGravityRelatedHeight(UnitOfMeasure::METRE));
+        const auto sql =
+            ctxt->getInsertStatementsFor(crs, "HOBU", "YYYY", false);
+        ASSERT_EQ(sql.size(), 4U);
+        EXPECT_EQ(sql[0], "INSERT INTO vertical_datum VALUES('HOBU',"
+                          "'VERTICAL_DATUM_YYYY','my datum','',NULL,NULL,NULL,"
+                          "'my anchor',2023.000,0);");
+        const auto identified =
+            crs->identify(AuthorityFactory::create(ctxt, std::string()));
+        ASSERT_EQ(identified.size(), 1U);
+        EXPECT_EQ(
+            *(identified.front().first->identifiers().front()->codeSpace()),
+            "HOBU");
+        EXPECT_TRUE(identified.front().first->isEquivalentTo(
+            crs.get(), IComparable::Criterion::EQUIVALENT));
+        EXPECT_EQ(identified.front().second, 100);
+        EXPECT_TRUE(
+            ctxt->getInsertStatementsFor(crs, "HOBU", "YYYY", false).empty());
         ctxt->stopInsertStatementsSession();
     }
 
@@ -4247,7 +5126,8 @@ TEST(factory, objectInsertion) {
         ctxt->stopInsertStatementsSession();
     }
 
-    // Missing projection method and parameter id
+    // Missing projection method and parameter id, and parameters not in
+    // their nominal order
     {
         auto ctxt = DatabaseContext::create();
         ctxt->startInsertStatementsSession();
@@ -4261,9 +5141,9 @@ TEST(factory, objectInsertion) {
             "            ANGLEUNIT[\"degree\",0.0174532925199433]]],\n"
             "    CONVERSION[\"UTM zone 31N\",\n"
             "        METHOD[\"Transverse Mercator\"],\n"
-            "        PARAMETER[\"Latitude of natural origin\",0,\n"
-            "            ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
             "        PARAMETER[\"Longitude of natural origin\",3,\n"
+            "            ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
+            "        PARAMETER[\"Latitude of natural origin\",0,\n"
             "            ANGLEUNIT[\"degree\",0.0174532925199433]],\n"
             "        PARAMETER[\"Scale factor at natural origin\",0.9996,\n"
             "            SCALEUNIT[\"unity\",1]],\n"
@@ -4392,5 +5272,119 @@ TEST(factory, ogc_crs) {
 }
 
 // ---------------------------------------------------------------------------
+
+TEST(factory, getPointMotionOperationsFor) {
+    auto ctxt = DatabaseContext::create();
+    auto factory = AuthorityFactory::create(DatabaseContext::create(), "EPSG");
+    // "NAD83(CSRS)v7"
+    auto crs = factory->createGeodeticCRS("8255");
+    auto opList = factory->getPointMotionOperationsFor(crs, false);
+    ASSERT_TRUE(!opList.empty());
+    EXPECT_EQ(opList.front()->identifiers().front()->code(), "9483");
+}
+
+// ---------------------------------------------------------------------------
+
+TEST(factory, toWGS84AutocorrectWrongValues) {
+    auto ctxt = DatabaseContext::create();
+    {
+        double tx = 1;
+        double ty = 2;
+        double tz = 3;
+        double rx = 0;
+        double ry = 0;
+        double rz = 0;
+        double scale_difference = 0;
+        EXPECT_FALSE(ctxt->toWGS84AutocorrectWrongValues(tx, ty, tz, rx, ry, rz,
+                                                         scale_difference));
+        EXPECT_EQ(tx, 1);
+        EXPECT_EQ(ty, 2);
+        EXPECT_EQ(tz, 3);
+        EXPECT_EQ(rx, 0);
+        EXPECT_EQ(ry, 0);
+        EXPECT_EQ(rz, 0);
+        EXPECT_EQ(scale_difference, 0);
+    }
+    {
+        // Incorrect parameters for EPSG:15929: WGS84 -> Belgian Lambert 72
+        // Cf https://github.com/OSGeo/PROJ/issues/4170
+        double tx = -106.8686;
+        double ty = 52.2978;
+        double tz = -103.7239;
+        double rx = -0.3366;
+        double ry = 0.457;
+        double rz = -1.8422;
+        double scale_difference = -1.2747;
+        EXPECT_TRUE(ctxt->toWGS84AutocorrectWrongValues(tx, ty, tz, rx, ry, rz,
+                                                        scale_difference));
+        EXPECT_EQ(tx, -106.8686);
+        EXPECT_EQ(ty, 52.2978);
+        EXPECT_EQ(tz, -103.7239);
+        EXPECT_EQ(rx, 0.3366);
+        EXPECT_EQ(ry, -0.457);
+        EXPECT_EQ(rz, 1.8422);
+        EXPECT_EQ(scale_difference, -1.2747);
+    }
+    {
+        // Almost incorrect parameters EPSG:15929: WGS84 -> Belgian Lambert 72
+        double tx = -106;
+        double ty = 52.2978;
+        double tz = -103.7239;
+        double rx = -0.3366;
+        double ry = 0.457;
+        double rz = -1.8422;
+        double scale_difference = -1.2747;
+        EXPECT_FALSE(ctxt->toWGS84AutocorrectWrongValues(tx, ty, tz, rx, ry, rz,
+                                                         scale_difference));
+        EXPECT_EQ(tx, -106);
+        EXPECT_EQ(ty, 52.2978);
+        EXPECT_EQ(tz, -103.7239);
+        EXPECT_EQ(rx, -0.3366);
+        EXPECT_EQ(ry, 0.457);
+        EXPECT_EQ(rz, -1.8422);
+        EXPECT_EQ(scale_difference, -1.2747);
+    }
+    {
+        // Correct Position Vector transformation ('EPSG','15869','DHDN to WGS
+        // 84 (3))
+        double tx = 612.4;
+        double ty = 77.0;
+        double tz = 440.2;
+        double rx = -0.054;
+        double ry = 0.057;
+        double rz = -2.797;
+        double scale_difference = 2.55;
+        EXPECT_FALSE(ctxt->toWGS84AutocorrectWrongValues(tx, ty, tz, rx, ry, rz,
+                                                         scale_difference));
+        EXPECT_EQ(tx, 612.4);
+        EXPECT_EQ(ty, 77.0);
+        EXPECT_EQ(tz, 440.2);
+        EXPECT_EQ(rx, -0.054);
+        EXPECT_EQ(ry, 0.057);
+        EXPECT_EQ(rz, -2.797);
+        EXPECT_EQ(scale_difference, 2.55);
+    }
+    {
+        // Correct parameters for EPSG:15929: WGS84 -> Belgian Lambert 72
+        // (Coordinate Frame rotation) Cf
+        // https://github.com/OSGeo/PROJ/issues/4170
+        double tx = -106.8686;
+        double ty = 52.2978;
+        double tz = -103.7239;
+        double rx = 0.3366;
+        double ry = -0.457;
+        double rz = 1.8422;
+        double scale_difference = -1.2747;
+        EXPECT_FALSE(ctxt->toWGS84AutocorrectWrongValues(tx, ty, tz, rx, ry, rz,
+                                                         scale_difference));
+        EXPECT_EQ(tx, -106.8686);
+        EXPECT_EQ(ty, 52.2978);
+        EXPECT_EQ(tz, -103.7239);
+        EXPECT_EQ(rx, 0.3366);
+        EXPECT_EQ(ry, -0.457);
+        EXPECT_EQ(rz, 1.8422);
+        EXPECT_EQ(scale_difference, -1.2747);
+    }
+}
 
 } // namespace

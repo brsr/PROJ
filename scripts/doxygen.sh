@@ -18,6 +18,15 @@ TOPDIR="$SCRIPT_DIR/.."
 
 pushd "${TOPDIR}" > /dev/null || exit
 
+doxygen_version_cmd=$(doxygen --version)
+# remove extra info after space
+doxygen_version=${doxygen_version_cmd%% *}
+
+echo "Doxygen version $doxygen_version"
+if test $doxygen_version = "1.8.17" ; then
+    echo "Doxygen 1.8.17 is incompatible" && /bin/false;
+fi
+
 # HTML generation
 # Check that doxygen runs warning free
 rm -rf docs/build/html/
@@ -29,13 +38,9 @@ else
     echo "No Doxygen warnings found";
 fi
 
-if test $(doxygen --version) = "1.8.17" ; then
-    echo "Doxygen 1.8.17 is incompatible" && /bin/false;
-fi
-
 rm -rf docs/build/xml/
 
-(cat Doxyfile; printf "GENERATE_HTML=NO\nGENERATE_XML=YES\nINPUT= src/iso19111 src/iso19111/operation include/proj src/proj.h src/filemanager.cpp src/networkfilemanager.cpp src/general_doc.dox") | doxygen -  > docs/build/docs_log.txt 2>&1
+(cat Doxyfile; printf "GENERATE_HTML=NO\nGENERATE_XML=YES\nINPUT= src/iso19111 src/iso19111/operation include/proj src/proj.h src/filemanager.cpp src/networkfilemanager.cpp src/coordinates.cpp src/trans_bounds.cpp src/general_doc.dox") | doxygen -  > docs/build/docs_log.txt 2>&1
 if grep -i warning docs/build/docs_log.txt; then
     echo "Doxygen warnings found" && cat docs/build/docs_log.txt && /bin/false;
 else

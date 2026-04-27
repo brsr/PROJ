@@ -29,8 +29,6 @@
  * Flattening the Earth, Snyder, J.P., 1993, p.213-214.
  *****************************************************************************/
 
-#define PJ_LIB__
-
 #include <math.h>
 
 #include "proj.h"
@@ -38,30 +36,29 @@
 
 PROJ_HEAD(times, "Times") "\n\tCyl, Sph";
 
-static PJ_XY times_s_forward (PJ_LP lp, PJ *P) {           /* Spheroidal, forward */
+static PJ_XY times_s_forward(PJ_LP lp, PJ *P) { /* Spheroidal, forward */
     double T, S, S2;
-    PJ_XY xy = {0.0,0.0};
-    (void) P;
+    PJ_XY xy = {0.0, 0.0};
+    (void)P;
 
-    T = tan(lp.phi/2.0);
+    T = tan(lp.phi / 2.0);
     S = sin(M_FORTPI * T);
-    S2 = S*S;
+    S2 = S * S;
 
-    xy.x = lp.lam * (0.74482 - 0.34588*S2);
-    xy.y = 1.70711 *  T;
+    xy.x = lp.lam * (0.74482 - 0.34588 * S2);
+    xy.y = 1.70711 * T;
 
     return xy;
 }
 
-
-static PJ_LP times_s_inverse (PJ_XY xy, PJ *P) {           /* Spheroidal, inverse */
+static PJ_LP times_s_inverse(PJ_XY xy, PJ *P) { /* Spheroidal, inverse */
     double T, S, S2;
-    PJ_LP lp = {0.0,0.0};
-    (void) P;
+    PJ_LP lp = {0.0, 0.0};
+    (void)P;
 
     T = xy.y / 1.70711;
     S = sin(M_FORTPI * T);
-    S2 = S*S;
+    S2 = S * S;
 
     lp.lam = xy.x / (0.74482 - 0.34588 * S2);
     lp.phi = 2 * atan(T);
@@ -69,8 +66,7 @@ static PJ_LP times_s_inverse (PJ_XY xy, PJ *P) {           /* Spheroidal, invers
     return lp;
 }
 
-
-PJ *PROJECTION(times) {
+PJ *PJ_PROJECTION(times) {
     P->es = 0.0;
 
     P->inv = times_s_inverse;

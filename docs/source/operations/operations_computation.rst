@@ -5,7 +5,7 @@ Computation of coordinate operations between two CRS
 ================================================================================
 
 :Author: Even Rouault
-:Last Updated: 2021-02-10
+:Last Updated: 2023-08-26
 
 Introduction
 ------------
@@ -60,7 +60,7 @@ From a code point of view, the entry point of the algorithm is the C++
 It combines several strategies:
 
   - look up in the PROJ database for available operations
-  - consider the pair (source CRS, target CRS) to synthetize operations depending
+  - consider the pair (source CRS, target CRS) to synthesize operations depending
     on the nature of the source and target CRS.
 
 Geographic CRS to Geographic CRS, with known identifiers
@@ -106,8 +106,10 @@ which can be used as an override).
 
 As those results all involve operations that does not have a perfect accuracy and that
 does not cover the area of use of the 2 CRSs, a
-'Ballpark geographic offset from NAD27 to NAD83' operation is synthetized by PROJ
+'Ballpark geographic offset from NAD27 to NAD83' operation is synthesized by PROJ
 (see :term:`Ballpark transformation`)
+
+.. _operations_computation_filtering:
 
 Filtering and sorting of coordinate operations
 ----------------------------------------------
@@ -474,10 +476,10 @@ because there is no such hub. This can occur for example when transforming from
 GDA94 to the latest realization at time of writing of WGS 84, WGS 84 (G1762).
 There are transformations between WGS 84 (G1762). Using the above described
 techniques, we would only find one non-ballpark operation taking the route:
-1. Conversion from GDA94 (geog2D) to GDA94 (geocentric): synthetized by PROJ
+1. Conversion from GDA94 (geog2D) to GDA94 (geocentric): synthesized by PROJ
 2. Inverse of ITRF2008 to GDA94 (1): from EPSG
 3. Inverse of WGS 84 (G1762) to ITRF2008 (1): from EPSG
-4. Conversion from WGS 84 (G1762) (geocentric) to WGS 84 (G1762): synthetized by PROJ
+4. Conversion from WGS 84 (G1762) (geocentric) to WGS 84 (G1762): synthesized by PROJ
 
 This is not bad, but the global validity area of use is "Australia - onshore and EEZ",
 whereas GDA94 has a larger area of use.
@@ -491,9 +493,9 @@ source and target CRS themselves. When there is a match, PROJ inserts the requir
 conversions between geographic and geocentric CRS to have a consistent concatenated
 operation, like the following:
 1. GDA94 to GDA2020 (1): from EPSG
-2. Conversion from GDA2020 (geog2D) to GDA2020 (geocentric): synthetized by PROJ
+2. Conversion from GDA2020 (geog2D) to GDA2020 (geocentric): synthesized by PROJ
 3. GDA2020 to WGS 84 (G1762) (1): from EPSG
-4. Conversion from WGS 84 (G1762) (geocentric) to WGS 84 (G1762) (geog2D): synthetized by PROJ
+4. Conversion from WGS 84 (G1762) (geocentric) to WGS 84 (G1762) (geog2D): synthesized by PROJ
 
 Projected CRS to any target CRS
 ---------------------------------------------------------------------------------
@@ -552,19 +554,27 @@ between those:
 
 
 But in cases where there is no match, the ``createOperationsVertToGeog`` method
-will be used to synthetize a ballpark vertical transformation, just taking care
+will be used to synthesize a ballpark vertical transformation, just taking care
 of unit changes, and axis reversal in case the vertical CRS was a depth rather than
 a height. Of course the results of such an operation are questionable, hence the
-ballpark qualifier and a unknown accuracy advertized for such an operation.
+ballpark qualifier and a unknown accuracy advertised for such an operation.
 
 Vertical CRS to a Vertical CRS
 ---------------------------------------------------------------------------------
 
 Overall logic is similar to the above case. There might be direct operations in
 the PROJ database, involving grid transformations or simple offsets. The fallback
-case is to synthetize a ballpark transformation.
+case is to synthesize a ballpark transformation.
 
-This is implemented by the ``createOperationsVertToVert`` method
+When no direct operation is found, a search is made for intermediate vertical CRS
+entries sharing the same datum as the source or target. If a registered operation
+exists between the source (or target) and such an intermediate CRS, it is composed
+with the axis/unit conversion to the actual target (or from the actual source).
+This is implemented by the ``createOperationsVertToVertWithIntermediateVert``
+method and avoids ballpark fallback for CRS pairs that differ only in axis
+direction (height vs depth), units (e.g. metres vs feet), or both.
+
+The direct case is handled by the ``createOperationsVertToVert`` method.
 
 .. code-block:: shell
 
@@ -783,3 +793,36 @@ Example:
 There are other situations with BoundCRS, involving vertical transformations,
 or transforming to other objects than a geographic CRS, but the curious reader
 will have to inspect the code for the actual gory details.
+
+
+Using Derived Projected for source or target CRS
+---------------------------------------------------------------------------------
+
+The `WKT2` tag ``DERIVEDPROJCRS`` can be useful to define a customized CRS
+adding a ``DERIVINGCONVERSION`` to apply a conversion on top of the projection.
+It can be also done inside a Compound CRS.
+One use case is to describe a local CRS produced in a site calibration,
+as explained in :cite:`JimenezShaw2023`.
+
+Using the WKT2 from that paper (stored in wkt2.txt file for readability) we would get this:
+
+.. code-block:: shell
+
+    projinfo -s EPSG:6319 -t "`cat wkt2.txt`" -o proj
+    Candidate operations found: 1
+    -------------------------------------
+    Operation No. 1:
+
+    unknown id, Inverse of Transformation from Ellipsoid (metre) to NAD83(2011) (ballpark vertical transformation, without ellipsoid height to vertical height correction) + Conv Vertical Offset and Slope + Transverse Mercator + Affine transformation as PROJ-based, unknown accuracy, World, has ballpark transformation
+
+    PROJ string:
+    +proj=pipeline
+    +step +proj=axisswap +order=2,1
+    +step +proj=unitconvert +xy_in=deg +xy_out=rad
+    +step +proj=vertoffset +lat_0=41.2305352787143 +lon_0=-73.1815861874286
+            +dh=31.0121985701957 +slope_lat=-6.12572852418232
+            +slope_lon=-2.67487863214139
+    +step +proj=tmerc +lat_0=41.2305352787143 +lon_0=-73.1815861874286 +k=1 +x_0=0
+            +y_0=0 +ellps=GRS80
+    +step +proj=affine +xoff=265262.95287 +yoff=196619.27389 +s11=1.00003994119
+            +s12=0.00548156923529 +s21=-0.00548156923529 +s22=1.00003994119

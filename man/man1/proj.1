@@ -1,8 +1,5 @@
 .\" Man page generated from reStructuredText.
 .
-.TH "PROJ" "1" "Mar 1, 2021" "8.0.0" "PROJ"
-.SH NAME
-proj \- Cartographic projection filter
 .
 .nr rst2man-indent-level 0
 .
@@ -30,21 +27,24 @@ level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .in \\n[rst2man-indent\\n[rst2man-indent-level]]u
 ..
+.TH "PROJ" "1" "01 Mar 2026" "9.8" "PROJ"
+.SH NAME
+proj \- Cartographic projection filter
 .SH SYNOPSIS
 .INDENT 0.0
 .INDENT 3.5
-\fBproj\fP [\fB\-beEfiIlmorsStTvVwW\fP] [args]] [\fI+opt[=arg]\fP ...] file ...
+\fBproj\fP [\fB\-beEfiIlmorsStTvVwW\fP] [args]] ([\fI+opt[=arg]\fP ...] | {crs}) file ...
 .sp
-\fBinvproj\fP [\fB\-beEfiIlmorsStTvVwW\fP] [args]] [\fI+opt[=arg]\fP ...] file ...
+\fBinvproj\fP [\fB\-beEfiIlmorsStTvVwW\fP] [args]] ([\fI+opt[=arg]\fP ...] | {crs}) file ...
 .UNINDENT
 .UNINDENT
 .SH DESCRIPTION
 .sp
-\fBproj\fP and \fBinvproj\fP perform respective forward and inverse
+\fI\%proj\fP and \fI\%invproj\fP perform respective forward and inverse
 conversion of cartographic data to or from cartesian data with a wide
 range of selectable projection functions.
 .sp
-\fBinvproj\fP may not be available on all platforms; in this case
+\fI\%invproj\fP may not be available on all platforms; in this case
 use \fI\%proj \-I\fP instead.
 .sp
 The following control parameters can appear in any order
@@ -53,7 +53,7 @@ The following control parameters can appear in any order
 .B \-b
 Special option for binary coordinate data input and output through standard
 input and standard output. Data is assumed to be in system type double
-floating point words. This option is to be used when \fBproj\fP is a child process
+floating point words. This option is to be used when \fI\%proj\fP is a child process
 and allows bypassing formatting operations.
 .UNINDENT
 .INDENT 0.0
@@ -61,7 +61,7 @@ and allows bypassing formatting operations.
 .B \-d <n>
 .UNINDENT
 .sp
-New in version 5.2.0: Specify the number of decimals in the output.
+New in version 5.2.0: Specify the number of decimals to round to in the output.
 
 .INDENT 0.0
 .TP
@@ -72,7 +72,7 @@ Selects binary input only (see \fI\%\-b\fP).
 .TP
 .B \-I
 Alternate method to specify inverse projection. Redundant when used with
-\fBinvproj\fP\&.
+\fI\%invproj\fP\&.
 .UNINDENT
 .INDENT 0.0
 .TP
@@ -163,7 +163,7 @@ reciprocal value of \fImult\fP is employed.
 .B \-f <format>
 Where \fIformat\fP is a printf format string to control the form of the output values.
 For inverse projections, the output will be in degrees when this option is
-employed. The default format is \fB"%.2f"\fP for forward projection and DMS for
+employed. The default format is \fB\(dq%.2f\(dq\fP for forward projection and DMS for
 inverse.
 .UNINDENT
 .INDENT 0.0
@@ -197,9 +197,16 @@ Additional projection control parameters may be contained in two auxiliary
 control files: the first is optionally referenced with the
 \fI+init=file:id\fP and the second is always processed after the name of the
 projection has been established from either the run\-line or the contents of
-+init file. The environment parameter \fBPROJ_LIB\fP establishes the
++init file. The environment parameter \fI\%PROJ_DATA\fP establishes the
 default directory for a file reference without an absolute path. This is
 also used for supporting files like datum shift files.
+.sp
+New in version 9.3.0: \fI{crs}\fP is one of the possibilities accepted by :c:\fBproj_create()\fP, provided it
+expresses a projected CRS, like a WKT string, an object code (like \(dqEPSG:32632\(dq)
+a PROJJSON string, etc.
+The projection computed will be those of the map projection implied by
+the transformation from the base geographic CRS of the projected CRS to the projected CRS.
+
 .sp
 One or more files (processed in left to right order) specify the source of
 data to be converted. A \fB\-\fP will specify the location of processing standard
@@ -211,7 +218,7 @@ portions of the input line are appended to the output line.
 Input geographic data (longitude and latitude) must be in DMS or decimal degrees format and input
 cartesian data must be in units consistent with the ellipsoid major axis or
 sphere radius units. Output geographic coordinates will be in DMS (if the
-\fB\-w\fP switch is not employed) and precise to 0.001" with trailing, zero\-valued
+\fB\-w\fP switch is not employed) and precise to 0.001\(dq with trailing, zero\-valued
 minute\-second fields deleted.
 .SH EXAMPLE
 .sp
@@ -221,8 +228,8 @@ The following script
 .sp
 .nf
 .ft C
-proj +proj=utm +lon_0=112w +ellps=clrk66 \-r <<EOF
-45d15\(aq33.1" 111.5W
+proj +proj=utm +zone=12 \-r <<EOF
+45d15\(aq33.1\(dq 111.5W
 45d15.551666667N \-111d30
 +45.25919444444 111d30\(aq000w
 EOF
@@ -231,8 +238,9 @@ EOF
 .UNINDENT
 .UNINDENT
 .sp
-will perform UTM forward projection with a standard UTM central meridian
-nearest longitude 112W. The geographic values of this example are equivalent
+will perform UTM zone 12 forward projection.
+The default +ellps=GRS80 is used as no +ellps was specified.
+The geographic values of this example are equivalent
 and meant as examples of various forms of DMS input. The x\-y output
 data will appear as three lines of:
 .INDENT 0.0
@@ -240,17 +248,64 @@ data will appear as three lines of:
 .sp
 .nf
 .ft C
-460769.27     5011648.45
+460770.43     5011865.86
+.ft P
+.fi
+.UNINDENT
+.UNINDENT
+.sp
+This other example
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.nf
+.ft C
+proj EPSG:6421 \-V <<EOF
+\-120 35.8
+EOF
+.ft P
+.fi
+.UNINDENT
+.UNINDENT
+.sp
+Will perform the projection of the coordinates in \(dqNAD83(2011) / California zone 4\(dq
+(\fIEPSG:6421\fP) into its geographic system, \(dqNAD83(2011)\(dq, showing the expanded annotated listing.
+The output will appear as:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.nf
+.ft C
+#Lambert Conformal Conic
+#   Conic, Sph&Ell
+#   lat_1= and lat_2= or lat_0, k_0=
+# +proj=lcc +lat_0=35.3333333333333 +lon_0=\-119 +lat_1=37.25 +lat_2=36
+# +x_0=2000000 +y_0=500000 +ellps=GRS80
+#Final Earth figure: ellipsoid
+#  Major axis (a): 6378137.000
+#  1/flattening: 298.257222
+#  squared eccentricity: 0.006694380023
+Longitude: 120dW [ \-120 ]
+Latitude:  35d48\(aqN [ 35.8 ]
+Easting (x):   1909606.87
+Northing (y):  552253.58
+Meridian scale (h) : 1.00004382  ( 0.004382 % error )
+Parallel scale (k) : 1.00004382  ( 0.004382 % error )
+Areal scale (s):     1.00008765  ( 0.008765 % error )
+Angular distortion (w): 0.000
+Meridian/Parallel angle: 90.00000
+Convergence : \-0d35\(aq47.714\(dq [ \-0.59658715 ]
+Max\-min (Tissot axis a\-b) scale error: 1.00004 1.00004
 .ft P
 .fi
 .UNINDENT
 .UNINDENT
 .SH OTHER PROGRAMS
 .sp
-The \fBproj\fP program is limited to converting between geographic and
+The \fI\%proj\fP program is limited to converting between geographic and
 projected coordinates within one datum.
 .sp
-The \fBcs2cs\fP program operates similarly, but allows translation
+The \fI\%cs2cs\fP program operates similarly, but allows translation
 between any pair of definable coordinate reference systems, including
 support for datum translation.
 .SH SEE ALSO
@@ -258,7 +313,7 @@ support for datum translation.
 \fBcs2cs(1)\fP, \fBcct(1)\fP, \fBgeod(1)\fP, \fBgie(1)\fP, \fBprojinfo(1)\fP, \fBprojsync(1)\fP
 .SH BUGS
 .sp
-A list of know bugs can be found at \fI\%https://github.com/OSGeo/PROJ/issues\fP
+A list of known bugs can be found at \fI\%https://github.com/OSGeo/PROJ/issues\fP
 where new bug reports can be submitted to.
 .SH HOME PAGE
 .sp
@@ -266,6 +321,6 @@ where new bug reports can be submitted to.
 .SH AUTHOR
 Gerald I. Evenden
 .SH COPYRIGHT
-1983-2021
+1983-2026, PROJ contributors
 .\" Generated by docutils manpage writer.
 .

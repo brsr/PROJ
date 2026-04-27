@@ -39,12 +39,18 @@ The following paths are checked in order:
 
   The PROJ user writable directory, which is :
 
-    * on Windows, ``${LOCALAPPDATA}/proj``
+    * on Windows, ``%LOCALAPPDATA%\proj``
     * on macOS, ``${HOME}/Library/Application Support/proj``
     * on other platforms (Linux), ``${XDG_DATA_HOME}/proj`` if
       :envvar:`XDG_DATA_HOME` is defined. Else ``${HOME}/.local/share/proj``
 
-- Path(s) set with by the environment variable :envvar:`PROJ_LIB`.
+  Applications may also customize the user writable directory using
+  :cpp:func:`proj_context_set_user_writable_directory` (since 9.5)
+
+- Path(s) set with by the environment variable :envvar:`PROJ_DATA`.
+  Prior to PROJ 9.1, this environment variable was called :envvar:`PROJ_LIB`.
+  This older name is still supported in PROJ 9.1 as a fallback, but support for it
+  may be removed in future release.
   On Linux/macOS/Unix, use ``:`` to separate paths. On Windows, ``;``
 
 - .. versionadded:: 7.0
@@ -61,10 +67,12 @@ The following paths are checked in order:
   that since this is a hard-wired path setting, it only works if the whole
   PROJ installation is not moved somewhere else.
 
-  .. note:: if PROJ is built with the ``PROJ_LIB_ENV_VAR_TRIED_LAST`` CMake option /
-            ``--enable-proj-lib-env-var-tried-last`` configure switch, then this
-            hard-wired path will be tried before looking at the environment
-            variable :envvar:`PROJ_LIB`.
+  .. note::
+
+    If PROJ is built with the ``PROJ_DATA_ENV_VAR_TRIED_LAST`` CMake option
+    (called ``PROJ_LIB_ENV_VAR_TRIED_LAST`` before PROJ 9.1),
+    then this hard-wired path will be tried before looking at the environment
+    variable :envvar:`PROJ_DATA`.
 
 - The current directory
 
@@ -82,6 +90,24 @@ A proj installation includes a SQLite database of transformation information
 that must be accessible for the library to work properly.  The library will
 print an error if the database can't be found.
 
+The database may be customized/reduced by deleting entries not relevant for a
+certain use-case. An example for a simple SQL script removing all entries not
+related to 'WGS 84' ellipsoid:
+
+::
+
+    PRAGMA FOREIGN_KEYS=1;
+    DELETE FROM ellipsoid WHERE name != 'WGS 84';
+    -- clean up table usage
+    DELETE FROM usage WHERE (object_table_name, object_auth_name, object_code) IN (
+      SELECT object_table_name, object_auth_name, object_code FROM usage WHERE NOT EXISTS (
+        SELECT 1 FROM object_view o WHERE
+            o.table_name = object_table_name AND
+            o.auth_name = object_auth_name AND
+            o.code = object_code));
+    VACUUM;
+    PRAGMA foreign_key_check;
+
 .. _proj-ini:
 
 :file:`proj.ini`
@@ -94,32 +120,7 @@ network related parameters.
 
 Its default content is:
 
-::
-
-    [general]
-    ; Lines starting by ; are commented lines.
-    ;
-
-    ; Network capabilities disabled by default.
-    ; Can be overridden with the PROJ_NETWORK=ON environment variable.
-    ; network = on
-
-    ; Can be overridden with the PROJ_NETWORK_ENDPOINT environment variable.
-    cdn_endpoint = https://cdn.proj.org
-
-    cache_enabled = on
-
-    cache_size_MB = 300
-
-    cache_ttl_sec = 86400
-
-    ; Transverse Mercator (and UTM) default algorithm: auto, evenden_snyder or poder_engsager
-    ; * evenden_snyder is the fastest, but less accurate far from central meridian
-    ; * poder_engsager is slower, but more accurate far from central meridian
-    ; * default will auto-select between the two above depending on the coordinate
-    ;   to transform and will use evenden_snyder if the error in doing so is below
-    ;   0.1 mm (for an ellipsoid of the size of Earth)
-    tmerc_default_algo = poder_engsager
+.. literalinclude:: ../../data/proj.ini
 
 
 Transformation grids
@@ -145,7 +146,7 @@ freely available for use with PROJ. The package is maintained on
 `GitHub <https://github.com/OSGeo/PROJ-data>`_ and the contents of the package
 are show-cased on the `PROJ CDN <https://cdn.proj.org/>`_. The contents of the
 package can be installed using the :program:`projsync` package or by downloading
-the zip archive of the package and unpacking in the :envvar:`PROJ_LIB` directory.
+the zip archive of the package and unpacking in the :envvar:`PROJ_DATA` directory.
 
 proj-datumgrid
 ++++++++++++++
@@ -256,16 +257,6 @@ Portugal
 
 `Portuguese grids <http://www.fc.up.pt/pessoas/jagoncal/coordenadas/index.htm>`__ for ED50, Lisbon 1890, Lisbon 1937 and Datum 73
 
-South Africa
-................................................................................
-
-`South African grid <http://eepublishers.co.za/article/datum-transformations-using-the-ntv2-grid.html>`__ (Cape to Hartebeesthoek94 or WGS84)
-
-Spain
-................................................................................
-
-`Spanish grids <http://www.ign.es/ign/layoutIn/herramientas.do#DATUM>`__ for ED50.
-
 
 HTDP
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -295,7 +286,7 @@ compiler.  For Ubuntu something like the following should work.
     apt-get install gfortran
 
 To compile the program do something like the following to produce the binary
-:program:`htdp` from the source code.
+``htdp`` from the source code.
 
 ::
 
@@ -305,7 +296,7 @@ Getting :file:`crs2crs2grid.py`
 ................................................................................
 
 The :file:`crs2crs2grid.py` script can be found at
-https://github.com/OSGeo/gdal/tree/master/gdal/swig/python/samples/crs2crs2grid.py
+https://github.com/OSGeo/gdal/blob/master/swig/python/gdal-utils/osgeo_utils/samples/crs2crs2grid.py
 
 The script depends on having the GDAL Python bindings operational; if they are not you
 will get an error such as:
@@ -341,13 +332,13 @@ Usage
 The goal of :file:`crs2crs2grid.py` is to produce a grid shift file for a designated
 region.  The region is defined using the ``-griddef`` switch.  When missing a
 continental US region is used.  The script creates a set of sample points for
-the grid definition, runs :program:`htdp` against it and then parses the
+the grid definition, runs ``htdp`` against it and then parses the
 resulting points and computes a point by point shift to encode into the final
-grid shift file.  By default it is assumed that :program:`htdp` is in the
+grid shift file.  By default it is assumed that ``htdp`` is in the
 executable path.  If not, please provide the path to the executable using the
 ``-htdp`` switch.
 
-The :program:`htdp` program supports transformations between many CRSes and for each (or
+The ``htdp`` program supports transformations between many CRSes and for each (or
 most?) of them you need to provide a date at which the CRS is fixed.  The full
 set of CRS Ids available in the HTDP program are:
 
@@ -414,7 +405,7 @@ ITRF init file is a good example of that.
 
 A number of init files come pre-bundled with PROJ but it is also possible to
 add your own custom init files. PROJ looks for the init files in the directory
-listed in the :envvar:`PROJ_LIB` environment variable.
+listed in the :envvar:`PROJ_DATA` environment variable.
 
 The format of init files is an identifier in angled brackets and a
 proj-string:
@@ -458,22 +449,20 @@ the ellipsoid as in the following example
     +init=epsg:25832 +ellps=intl
 
 where the Hayford ellipsoid is used instead of the predefined GRS80 ellipsoid.
+
 It is also possible to add additional parameters not specified in the init file,
-for instance by adding an observation epoch when transforming from ITRF2000 to
-ITRF2005:
+for instance by adding a central epoch when applying the ITRF2014:NOAM plate
+motion model:
 
 ::
 
-    +init=ITRF2000:ITRF2005 +t_obs=2010.5
+    +init=ITRF2014:NOAM +t_epoch=2010.0
 
 which then expands to
 
 ::
 
-    +proj=helmert +x=-0.0001 +y=0.0008 +z=0.0058 +s=-0.0004
-    +dx=0.0002 +dy=-0.0001 +dz=0.0018 +ds=-0.000008
-    +t_epoch=2000.0 +convention=position_vector
-    +t_obs=2010.5
+    +proj=helmert +drx=0.000024 +dry=-0.000694 +drz=-0.000063 +convention=position_vector +t_epoch=2010.0
 
 Below is a list of the init files that are packaged with PROJ.
 

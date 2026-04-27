@@ -1,4 +1,4 @@
-#define PJ_LIB__
+
 
 #include <math.h>
 
@@ -12,12 +12,11 @@ PROJ_HEAD(mbtfpp, "McBride-Thomas Flat-Polar Parabolic") "\n\tCyl, Sph";
 #define FYC 3.40168025708304504493
 #define C23 .66666666666666666666
 #define C13 .33333333333333333333
-#define ONEEPS  1.0000001
+#define ONEEPS 1.0000001
 
-
-static PJ_XY mbtfpp_s_forward (PJ_LP lp, PJ *P) {           /* Spheroidal, forward */
-    PJ_XY xy = {0.0,0.0};
-    (void) P;
+static PJ_XY mbtfpp_s_forward(PJ_LP lp, PJ *P) { /* Spheroidal, forward */
+    PJ_XY xy = {0.0, 0.0};
+    (void)P;
 
     lp.phi = asin(CSy * sin(lp.phi));
     xy.x = FXC * lp.lam * (2. * cos(C23 * lp.phi) - 1.);
@@ -25,9 +24,8 @@ static PJ_XY mbtfpp_s_forward (PJ_LP lp, PJ *P) {           /* Spheroidal, forwa
     return xy;
 }
 
-
-static PJ_LP mbtfpp_s_inverse (PJ_XY xy, PJ *P) {           /* Spheroidal, inverse */
-    PJ_LP lp = {0.0,0.0};
+static PJ_LP mbtfpp_s_inverse(PJ_XY xy, PJ *P) { /* Spheroidal, inverse */
+    PJ_LP lp = {0.0, 0.0};
 
     lp.phi = xy.y / FYC;
     if (fabs(lp.phi) >= 1.) {
@@ -41,7 +39,7 @@ static PJ_LP mbtfpp_s_inverse (PJ_XY xy, PJ *P) {           /* Spheroidal, inver
         lp.phi = asin(lp.phi);
 
     lp.phi *= 3.;
-    lp.lam = xy.x / ( FXC * (2. * cos(C23 * lp.phi) - 1.) );
+    lp.lam = xy.x / (FXC * (2. * cos(C23 * lp.phi) - 1.));
     lp.phi = sin(lp.phi) / CSy;
     if (fabs(lp.phi) >= 1.) {
         if (fabs(lp.phi) > ONEEPS) {
@@ -56,8 +54,7 @@ static PJ_LP mbtfpp_s_inverse (PJ_XY xy, PJ *P) {           /* Spheroidal, inver
     return lp;
 }
 
-
-PJ *PROJECTION(mbtfpp) {
+PJ *PJ_PROJECTION(mbtfpp) {
 
     P->es = 0.;
     P->inv = mbtfpp_s_inverse;
@@ -65,3 +62,10 @@ PJ *PROJECTION(mbtfpp) {
 
     return P;
 }
+
+#undef CSy
+#undef FXC
+#undef FYC
+#undef C23
+#undef C13
+#undef ONEEPS

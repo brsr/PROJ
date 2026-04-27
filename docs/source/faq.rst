@@ -23,7 +23,7 @@ separate column.
 
     If your data is stored in a common geodata file format chances are that
     you can use `GDAL <https://gdal.org/>`_ as a frontend to PROJ and transform your data with the
-    :program:`ogr2ogr` application.
+    `ogr2ogr <https://gdal.org/programs/ogr2ogr.html>`__ application.
 
 Can I transform from *abc* to *xyz*?
 --------------------------------------------------------------------------------
@@ -49,8 +49,7 @@ ETRS89/UTM32N (EPSG:25832) and ETRS89/DKTM1 (EPSG:4093):
       +step +proj=tmerc +lat_0=0 +lon_0=9 +k=0.99998 +x_0=200000 +y_0=-5000000
             +ellps=GRS80
 
-See the :program:`projinfo` :ref:`documentation <projinfo>` for more info on
-how to use it.
+See the :program:`projinfo` documentation for more info on how to use it.
 
 Coordinate reference system *xyz* is not in the EPSG registry, what do I do?
 --------------------------------------------------------------------------------
@@ -99,6 +98,15 @@ erroneous transformations.
 For compatibility reasons PROJ supports several WKT dialects
 (see :option:`projinfo -o`). If possible WKT2 should be used.
 
+Which CRS apply to a given location?
+--------------------------------------------------------------------------------
+
+You can use the webpage
+`CRS Explorer <https://crs-explorer.proj.org/>`_
+to view a list of all coordinate reference systems in `proj.db`, and
+filter by type, authority, name and location (clicking on the map). It provides
+WKTs for every coordinate reference system and quick links to epsg.org.
+
 Why is the axis ordering in PROJ not consistent?
 --------------------------------------------------------------------------------
 
@@ -127,7 +135,9 @@ input ordered as latitude/longitude  (typically with the EPSG dataset), however,
 internally PROJ expects an longitude/latitude ordering for all projections. This
 is generally hidden for users but in a few cases it is exposed at the surface
 level of PROJ, most prominently in the :program:`proj` utility which expects
-longitude/latitude ordering of input date (unless :option:`proj -r` is used).
+longitude/latitude ordering of input data (unless :option:`proj -r` is used).
+(And :program:`geod`, which on the contrary expects latitude/longitude, and lacks any
+`-r` style workarounds.)
 
 In case of doubt about the axis order of a specific CRS :program:`projinfo` is
 able to provide an answer. Simply look up the CRS and examine the axis specification
@@ -166,13 +176,14 @@ function.  Like other :doc:`resource files<../resource_files>`,
 it is located using a set of search
 paths.  In most cases, the following paths are checked in order:
 
-    - A path provided by the environment variable :envvar:`PROJ_LIB`.
+    - A path provided by the environment variable :envvar:`PROJ_DATA`
+      (called ``PROJ_LIB`` before PROJ 9.1)
     - A path built into PROJ as its resource installation directory
       (typically ../share/proj relative to the PROJ library).
     - The current directory.
 
 Note that if you're using conda, activating an environment sets
-:envvar:`PROJ_LIB` to a resource directory located in that environment.
+:envvar:`PROJ_DATA` to a resource directory located in that environment.
 
 
 What happened to PROJ.4?
@@ -193,3 +204,14 @@ call the software PROJ.
 Use of name PROJ.4 is now strictly reserved for describing legacy behavior
 of the software, e.g. "PROJ.4 strings" as seen in :program:`projinfo`
 output.
+
+
+Who uses PROJ ?
+---------------
+
+See :ref:`users`
+
+.. toctree::
+   :hidden:
+
+   users

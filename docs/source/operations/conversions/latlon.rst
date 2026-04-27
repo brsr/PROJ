@@ -30,10 +30,17 @@ However, the parameters below can be used in a declarative manner when used with
 
 .. option:: +datum=<value>
 
-    Declare the datum used with the coordinates. See ``cs2cs -ld`` for a
-    list of available datums.
+    Declare the datum used with the coordinates. Available options are:
+    ``WGS84``, ``GGRS87``, ``NAD38``, ``NAD27``, ``potsdam``, ``carthage``,
+    ``hermannskogel``, ``ire65``, ``nzgd49``, ``OSGB336``.
+
+    .. note::
+
+        The ``+datum`` option is primarily available to support the legacy
+        use of PROJ.4 strings as CRS descriptors and should in most cases
+        be avoided.
 
 .. option:: +towgs84=<list>
 
-    A list of three or seven :ref:`Helmert <helmert>` parameters that maps
+    A list of three or seven comma separated :ref:`Helmert <helmert>` parameters that maps
     the input coordinates to the WGS84 datum.

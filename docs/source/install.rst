@@ -63,7 +63,7 @@ To install PROJ do the following:
     already installed. Type "OSGeo4W Shell" in your start menu and check whether
     that gives a match.
 
-1. Download either the `32 bit`_ or `64 bit`_ installer.
+1. Download the `64 bit`_ installer.
 2. Run the OSGeo4W setup program.
 3. Select "Advanced Install" and press Next.
 4. Select "Install from Internet" and press Next.
@@ -81,11 +81,10 @@ including proj.
 For those who are more inclined to the command line, steps 2--10 above can be
 accomplished by executing the following command::
 
-   C:\temp\osgeo4w-setup-x86-64.exe -q -k -r -A -s https://download.osgeo.org/osgeo4w/ -a x86_64 -P proj
+   C:\temp\osgeo4w-setup.exe -q -k -r -A -s https://download.osgeo.org/osgeo4w/v2/ -P proj
 
 .. _`OSGeo4W`: https://trac.osgeo.org/osgeo4w/
-.. _`32 bit`: https://download.osgeo.org/osgeo4w/osgeo4w-setup-x86.exe
-.. _`64 bit`: https://download.osgeo.org/osgeo4w/osgeo4w-setup-x86_64.exe
+.. _`64 bit`: https://download.osgeo.org/osgeo4w/v2/osgeo4w-setup.exe
 
 Linux
 --------------------------------------------------------------------------------
@@ -103,14 +102,14 @@ On Debian and similar systems (e.g. Ubuntu) the APT package manager is used::
 Fedora
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-On Fedora the :program:`dnf` package manager is used::
+On Fedora the ``dnf`` package manager is used::
 
     sudo dnf install proj
 
 Red Hat
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-On Red Hat based system packages are installed with :program:`yum`::
+On Red Hat based system packages are installed with ``yum``::
 
     sudo yum install proj
 
@@ -132,129 +131,43 @@ Compilation and installation from source code
 The classic way of installing PROJ is via the source code distribution. The
 most recent version is available from the :ref:`download page<current_release>`.
 
-The following guides show how to compile and install the software using the
-Autotools and CMake build systems.
+The following guides show how to compile and install the software using CMake.
+
+  .. note::
+
+    Support for Autotools was maintained until PROJ 8.2 (see :ref:`RFC7`).
+    PROJ 9.0 and later releases only support builds using CMake.
+
+
+Requirements
+--------------------------------------------------------------------------------
 
 Build requirements
---------------------------------------------------------------------------------
+++++++++++++++++++
 
 - C99 compiler
-- C++11 compiler
-- SQLite3 >= 3.11 (headers, library and executable)
-- libtiff >= 4.0 (headers and library)
-- optional (but recommended): curl >= 7.29.0
-- GNU make for autotools build or CMake >= 3.9
-
-Autotools
---------------------------------------------------------------------------------
-
-FSF's configuration procedure is used to ease installation of the PROJ system.
-
-.. note::
-    The Autotools build system is only available on UNIX-like systems.
-    Follow the CMake installation guide if you are not using a UNIX-like
-    operating system.
-
-The default destination path prefix for installed files is ``/usr/local``.
-Results from the installation script will be placed into subdirectories ``bin``,
-``include``, ``lib``, and ``man/man1``. If this default path prefix
-is proper, then execute::
-
-    ./configure
-
-If another path prefix is required, then execute::
-
-    ./configure --prefix=/my/path
-
-In either case, the directory of the prefix path must exist and be writable by
-the installer.
-
-If you are building from the git repository you have to first run::
-
-    ./autogen.sh
-
-which will generate a configure script that can be used as described above.
-
-With the data files in place we can now build and install PROJ::
-
-    make
-    make install
-
-The install target will create, if necessary, all required sub-directories.
-
-Tests are run with::
-
-    make check
-
-With a successful install of PROJ we can now install data files using the
-:program:`projsync` utility::
-
-    projsync --system-directory
-
-which will download all resource files currently available for PROJ. If less than
-the entire collection of resource files is needed the call to :program:`projsync`
-can be modified to suit the users needs. See :ref:`projsync` for more options.
-
-.. note::
-
-    The use of :program:`projsync` requires that network support is enabled (the
-    default option). If the resource files are not installed using
-    :program:`projsync` PROJ will attempt to fetch them automatically when a
-    transformation needs a specific data file. This  requires that
-    :envvar:`PROJ_NETWORK` is set to ``ON``.
-
-    As an alternative on systems where network access is disabled, the
-    :ref:`proj-data <datumgrid>`
-    package can be downloaded and added to the :envvar:`PROJ_LIB` directory.
+- C++17 compiler
+- CMake >= 3.16
+- SQLite3 >= 3.11: headers and library for target architecture, and sqlite3 executable for build architecture
+- libtiff >= 4.0 (optional but recommended to enable reading of grid formats based on GeoTIFF. Only basic TIFF support is required; optional features like WebP or ZStd are not needed.)
+- curl >= 7.29.0 (optional but recommended to support automatic downloading of remote grid files during runtime, allowing PROJ to fetch required transformation data on demand.)
+- JSON for Modern C++ (nlohmann/json) >= 3.7.0
 
 
+.. _test_requirements:
 
-Autotools configure options
-+++++++++++++++++++++++++++
+Test requirements
++++++++++++++++++
 
-Most POSIX systems may not require any options to ``./configure`` if all
-PROJ requirements are met, installed into common directories, and a
-"default" behavior is desired.
+These are only required if testing is built (see :option:`BUILD_TESTING`, default ON)
 
-Some influential environment variables are used by ``./configure``,
-with no expected defaults:
+- GoogleTest (GTest) >= 1.8.1; if not found and :option:`TESTING_USE_NETWORK` is ON, then version 1.15.2 is fetched from GitHub and locally installed
+- Python >= 3.7
+- `importlib_metadata <https://pypi.org/project/importlib-metadata/>`_ only needed for Python 3.7
+- One of either `PyYAML <https://pypi.org/project/PyYAML/>`_ or `ruamel.yaml <https://pypi.org/project/ruamel.yaml/>`_
 
-.. envvar:: CC
 
-    C compiler command.
-
-.. envvar:: CFLAGS
-
-    C compiler flags.
-
-.. envvar:: CXX
-
-    C++ compiler command.
-
-.. envvar:: CXXFLAGS
-
-    C++ compiler flags
-
-See ``./configure --help`` for all options, here are a few key options:
-
-.. option:: --enable-lto
-
-    Enable compiler's Link Time Optimization, default disabled.
-
-.. option:: --disable-tiff
-
-    TIFF support is enabled by default to use PROJ-data resource files,
-    but this can be disabled, if required.
-
-.. option:: --with-curl=ARG
-
-    Enable CURL support (``ARG=path`` to ``curl-config``).
-
-.. option:: --without-mutex
-
-    Disable real mutex locks (lacking pthreads).
-
-CMake
+Build steps
 --------------------------------------------------------------------------------
 
 With the CMake build system you can compile and install PROJ on more or less any
@@ -278,12 +191,8 @@ On Windows, one may need to specify generator::
 
     cmake -G "Visual Studio 15 2017" ..
 
-If the SQLite3 dependency is installed in a custom location, specify the
-paths to the include directory and the library::
-
-    cmake -DSQLITE3_INCLUDE_DIR=/opt/SQLite/include -DSQLITE3_LIBRARY=/opt/SQLite/lib/libsqlite3.so ..
-
-Alternatively, the custom prefix for SQLite3 can be specified::
+If the SQLite3 dependency is installed in a custom location, specify
+:option:`CMAKE_PREFIX_PATH`::
 
     cmake -DCMAKE_PREFIX_PATH=/opt/SQLite ..
 
@@ -292,10 +201,10 @@ Tests are run with::
 
     ctest
 
-With a successful install of PROJ we can now install data files using the
+With a successful install of PROJ, we can now install data files using the
 :program:`projsync` utility::
 
-    projsync --system-directory
+    projsync --system-directory --all
 
 which will download all resource files currently available for PROJ. If less than
 the entire collection of resource files is needed the call to :program:`projsync`
@@ -311,59 +220,75 @@ can be modified to suit the users needs. See :ref:`projsync` for more options.
 
     As an alternative on systems where network access is disabled, the
     :ref:`proj-data <datumgrid>`
-    package can be downloaded and added to the :envvar:`PROJ_LIB` directory.
+    package can be downloaded and its content decompressed into one of the
+    directories where PROJ looks for :ref:`resources <resource_files>`
 
+Starting with PROJ 9.2, a ``uninstall`` target is available to remove files
+installed by the ``install`` target::
 
+    cmake --build . --target uninstall
 
 
 CMake configure options
-+++++++++++++++++++++++
+--------------------------------------------------------------------------------
 
 Options to configure a CMake are provided using ``-D<var>=<value>``.
 All cached entries can be viewed using ``cmake -LAH`` from a build directory.
 
+.. option:: BUILD_APPS=ON
+
+    Build PROJ applications. Default is ON. Control the default value for
+    BUILD_CCT, BUILD_CS2CS, BUILD_GEOD, BUILD_GIE, BUILD_PROJ, BUILD_PROJINFO
+    and BUILD_PROJSYNC.
+    Note that changing its value after having configured once will not change
+    the value of the individual BUILD_CCT, ... options.
+
+    .. versionchanged:: 8.2
+
 .. option:: BUILD_CCT=ON
 
-    Build :ref:`cct`, default ON.
+    Build :ref:`cct`, default is the value of BUILD_APPS.
 
 .. option:: BUILD_CS2CS=ON
 
-    Build :ref:`cs2cs`, default ON.
+    Build :ref:`cs2cs`,default is the value of BUILD_APPS.
 
 .. option:: BUILD_GEOD=ON
 
-    Build :ref:`geod`, default ON.
+    Build :ref:`geod`, default is the value of BUILD_APPS.
 
 .. option:: BUILD_GIE=ON
 
-    Build :ref:`gie`, default ON.
+    Build :ref:`gie`, default is the value of BUILD_APPS.
 
 .. option:: BUILD_PROJ=ON
 
-    Build :ref:`proj`, default ON.
+    Build :ref:`proj`, default is the value of BUILD_APPS.
 
 .. option:: BUILD_PROJINFO=ON
 
-    Build :ref:`projinfo`, default ON.
+    Build :ref:`projinfo`, default is the value of BUILD_APPS.
 
 .. option:: BUILD_PROJSYNC=ON
 
-    Build :ref:`projsync`, default ON.
+    Build :ref:`projsync`, default is the value of BUILD_APPS.
 
 .. option:: BUILD_SHARED_LIBS
 
-    Build PROJ library shared. Default for Windows is OFF, building only
-    a static library. Default for all others is ON. See also the CMake
+    Build PROJ library shared. Default is ON. See also the CMake
     documentation for `BUILD_SHARED_LIBS
-    <https://cmake.org/cmake/help/v3.9/variable/BUILD_SHARED_LIBS.html>`_.
+    <https://cmake.org/cmake/help/latest/variable/BUILD_SHARED_LIBS.html>`_.
 
     .. versionchanged:: 7.0
         Renamed from ``BUILD_LIBPROJ_SHARED``
 
+    .. note:: before PROJ 9.0, the default was OFF for Windows builds.
+
 .. option:: BUILD_TESTING=ON
 
-    CTest option to build the testing tree, which also downloads and installs
-    Googletest. Default is ON, but can be turned OFF if tests are not required.
+    CTest option to build the testing tree. Default is ON, but can be turned
+    OFF if tests are not required.
+    See :ref:`test requirements <test_requirements>` for other details.
 
     .. versionchanged:: 7.0
         Renamed from ``PROJ_TESTS``
@@ -373,13 +298,33 @@ All cached entries can be viewed using ``cmake -LAH`` from a build directory.
     Choose the type of build, options are: None (default), Debug, Release,
     RelWithDebInfo, or MinSizeRel. See also the CMake documentation for
     `CMAKE_BUILD_TYPE
-    <https://cmake.org/cmake/help/v3.9/variable/CMAKE_BUILD_TYPE.html>`_.
+    <https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html>`_.
 
     .. note::
         A default build is not optimized without specifying
         ``-DCMAKE_BUILD_TYPE=Release`` (or similar) during configuration,
         or by specifying ``--config Release`` with CMake
         multi-configuration build tools (see example below).
+
+.. option:: PROJ_OUTPUT_NAME
+
+    .. versionadded:: 9.5
+
+    Sets the name of the PROJ library (excluding extension).
+    This generally defaults to "proj", except on Windows, where this defaults to
+    "proj_${PROJ_MAJOR_VERSION}" if APPEND_SOVERSION is OFF.
+
+    .. note::
+        For PROJ >= 6.0 and up to 9.4.1, on Windows, this was hardcoded to
+        "proj_${PROJ_MAJOR_VERSION}_${PROJ_MINOR_VERSION}".
+
+.. option:: APPEND_SOVERSION=OFF
+
+    .. versionadded:: 9.5
+
+    This variable can be set to ON for MinGW builds where BUILD_SHARED_LIBS=ON,
+    to add a "-${PROJ_SOVERSION}" suffix to the PROJ shared library name.
+    When this variable is set, PROJ_OUTPUT_NAME defaults to "proj"
 
 .. option:: CMAKE_C_COMPILER
 
@@ -405,6 +350,25 @@ All cached entries can be viewed using ``cmake -LAH`` from a build directory.
     :envvar:`OSGEO4W_ROOT` (if set), otherwise is ``c:/OSGeo4W``.
     Default for Unix-like is ``/usr/local/``.
 
+.. option:: CMAKE_PREFIX_PATH
+
+    `CMake variable
+    <https://cmake.org/cmake/help/latest/variable/CMAKE_PREFIX_PATH.html>`_
+    used to specify installation prefixes for SQLite3 and other dependencies.
+
+.. option:: CMAKE_UNITY_BUILD=OFF
+
+    .. versionadded:: 9.4
+
+    Default is OFF. This can be set to ON to build PROJ using the
+    `CMAKE_UNITY_BUILD
+    <https://cmake.org/cmake/help/latest/variable/CMAKE_UNITY_BUILD.html>`_.
+    feature.
+    This helps speeding PROJ build times. This feature is still considered
+    experimental for now, and could hide subtle bugs (we are not aware of
+    any at writing time though). We don't recommend it for mission critical
+    builds.
+
 .. option:: ENABLE_IPO=OFF
 
     Build library using the compiler's `interprocedural optimization
@@ -418,14 +382,17 @@ All cached entries can be viewed using ``cmake -LAH`` from a build directory.
 
     Path to an ``sqlite3`` or ``sqlite3.exe`` executable.
 
-.. option:: SQLITE3_INCLUDE_DIR
+    .. note::
 
-    Path to an include directory with the ``sqlite3.h`` header file.
+        When cross-compiling, the executable pointed by EXE_SQLITE3 must be
+        of the same architecture as the host, *not* of the architecture you
+        build for. That sqlite3 binary is used to build the :file:`proj.db`
+        SQLite3 database from source .sql files.
 
-.. option:: SQLITE3_LIBRARY
-
-    Path to a shared or static library file, such as ``sqlite3.dll``,
-    ``libsqlite3.so``, ``sqlite3.lib`` or other name.
+.. deprecated:: 9.4.0
+    ``SQLITE3_INCLUDE_DIR`` and ``SQLITE3_LIBRARY`` should be replaced with
+    ``SQLite3_INCLUDE_DIR`` and ``SQLite3_LIBRARY``, respectively.
+    Users may also consider :option:`CMAKE_PREFIX_PATH` instead.
 
 .. option:: ENABLE_CURL=ON
 
@@ -454,6 +421,80 @@ All cached entries can be viewed using ``cmake -LAH`` from a build directory.
     ``libtiff.so``, ``tiff.lib``, or other name. A similar variable
     ``TIFF_LIBRARY_DEBUG`` can also be specified to a similar library for
     building Debug releases.
+
+.. option:: USE_CCACHE=OFF
+
+    Configure CMake to use `ccache <https://ccache.dev/>`_ (or
+    `clcache <https://github.com/frerich/clcache>`_ for MSVC)
+    to build C/C++ objects.
+
+.. option:: PROJ_DB_CACHE_DIR
+
+    Path to an existing directory used to cache :file:`proj.db` to speed-up
+    subsequent builds without modifications to source SQL files.
+
+.. option:: TESTING_USE_NETWORK=ON
+
+    .. versionadded:: 9.5
+
+    Permit use of network to fetch :ref:`test requirements
+    <test_requirements>` (if needed)
+    and run network-dependent tests. Default ON.
+
+.. option:: EMBED_PROJ_DATA_PATH
+
+    .. versionadded:: 9.5
+
+    Embed ``PROJ_DATA`` hard-coded alternative path for data files location. Disable to avoid setting this non-relocatable hard-coded path. Default ON.
+
+.. option:: EMBED_RESOURCE_FILES=ON/OFF
+
+    .. versionadded:: 9.6
+
+    When ON, :file:`proj.db`, :file:`proj.ini` and ITRF resource files will be
+    embedded into the PROJ library.
+    Default is OFF for shared library builds (BUILD_SHARED_LIBS=ON), and ON
+    for static library builds (BUILD_SHARED_LIBS=OFF).
+
+.. option:: EMBED_RESOURCE_DIRECTORY=<directory>
+
+    .. versionadded:: 9.6
+
+    Embed files from <directory> ending with .tif, .json or .pol in the PROJ library itself.
+
+    The pointed directory can potentially be the full PROJ-data package (uncompressed).
+    In that case, about 6 GB of free disk and 16 GB of RAM are required to build PROJ.
+
+    When using this parameter, EMBED_RESOURCE_FILES must be set to ON.
+
+    If the content of the directory changes, you need to run CMake again to
+    update the list of files.
+
+.. option:: USE_ONLY_EMBEDDED_RESOURCE_FILES=ON/OFF
+
+    .. versionadded:: 9.6
+
+    Even if EMBED_RESOURCE_FILES=ON, by default PROJ will still try to locate
+    :file:`proj.db`, :file:`proj.ini`, ITRF resource files or grid files on the
+    file system, and fallback to the embedded version if not found.
+    By setting USE_ONLY_EMBEDDED_RESOURCE_FILES=ON, no attempt at locating
+    those files on the file system is made.
+    Default is OFF.
+    Users will also typically want to set EMBED_PROJ_DATA_PATH=OFF if setting
+    USE_ONLY_EMBEDDED_RESOURCE_FILES=OFF.
+
+.. _install_emscripten_fetch:
+.. option:: ENABLE_EMSCRIPTEN_FETCH=ON/OFF
+
+    .. versionadded:: 9.8
+
+    When ON, the function emscripten_fetch is used to get files
+    from the network (grid files, etc), in a similar way as with cURL.
+    PROJ is doing synchronous fetch calls, so emscripten must have the `-pthread` flag enabled.
+    In addition to that, it is very recommended to run it in a Web Worker in the browser,
+    to not block the main thread.
+    It is incompatible with cURL, so ``ENABLE_CURL`` must be OFF.
+    Default: OFF.
 
 
 Building on Windows with vcpkg and Visual Studio 2017 or 2019
@@ -484,8 +525,8 @@ Install PROJ dependencies
 
 ::
 
-    vcpkg.exe install sqlite3[core,tool]:x86-windows tiff:x86-windows curl:x86-windows
-    vcpkg.exe install sqlite3[core,tool]:x64-windows tiff:x64-windows curl:x64-windows
+    vcpkg install sqlite3[core,tool] tiff curl --triplet=x86-windows
+    vcpkg install sqlite3[core,tool] tiff curl --triplet=x64-windows
 
 .. note:: The tiff and curl dependencies are only needed since PROJ 7.0
 

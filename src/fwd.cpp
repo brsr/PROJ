@@ -34,84 +34,108 @@
 #include "proj_internal.h"
 #include <math.h>
 
-#define INPUT_UNITS  P->left
+#define INPUT_UNITS P->left
 #define OUTPUT_UNITS P->right
 
-
-static PJ_COORD fwd_prepare (PJ *P, PJ_COORD coo) {
-    if (HUGE_VAL==coo.v[0] || HUGE_VAL==coo.v[1] || HUGE_VAL==coo.v[2])
-        return proj_coord_error ();
-
-    /* The helmert datum shift will choke unless it gets a sensible 4D coordinate */
-    if (HUGE_VAL==coo.v[2] && P->helmert) coo.v[2] = 0.0;
-    if (HUGE_VAL==coo.v[3] && P->helmert) coo.v[3] = 0.0;
+static void fwd_prepare(PJ *P, PJ_COORD &coo) {
 
     /* Check validity of angular input coordinates */
-    if (INPUT_UNITS==PJ_IO_UNITS_RADIANS) {
-        double t;
+    if (INPUT_UNITS == PJ_IO_UNITS_RADIANS) {
 
         /* check for latitude or longitude over-range */
-        t = (coo.lp.phi < 0  ?  -coo.lp.phi  :  coo.lp.phi) - M_HALFPI;
-        if (t > PJ_EPS_LAT)
-        {
-            proj_log_error(P, _("Invalid latitude"));
-            proj_errno_set (P, PROJ_ERR_COORD_TRANSFM_INVALID_COORD);
-            return proj_coord_error ();
-        }
-        if (coo.lp.lam > 10  ||  coo.lp.lam < -10)
-        {
-            proj_log_error(P, _("Invalid longitude"));
-            proj_errno_set (P, PROJ_ERR_COORD_TRANSFM_INVALID_COORD);
-            return proj_coord_error ();
+        if (std::fabs(coo.lp.phi) > M_HALFPI) {
+            if (HUGE_VAL == coo.lp.lam || HUGE_VAL == coo.lp.phi) {
+                coo = proj_coord_error();
+                return;
+            }
+
+            if (coo.lp.phi > 0) {
+                if (coo.lp.phi - M_HALFPI > PJ_EPS_LAT) {
+                    proj_log_error(P, _("Invalid latitude"));
+                    proj_errno_set(P, PROJ_ERR_COORD_TRANSFM_INVALID_COORD);
+                    coo = proj_coord_error();
+                    return;
+                }
+                coo.lp.phi = M_HALFPI;
+            } else {
+                if (coo.lp.phi - M_HALFPI < -PJ_EPS_LAT) {
+                    proj_log_error(P, _("Invalid latitude"));
+                    proj_errno_set(P, PROJ_ERR_COORD_TRANSFM_INVALID_COORD);
+                    coo = proj_coord_error();
+                    return;
+                }
+                coo.lp.phi = -M_HALFPI;
+            }
         }
 
+        // Longitude check
+        if (std::fabs(coo.lp.lam) > M_PI) {
+            if (std::fabs(coo.lp.lam) > 10) {
+                proj_log_error(P, _("Invalid longitude"));
+                proj_errno_set(P, PROJ_ERR_COORD_TRANSFM_INVALID_COORD);
+                coo = proj_coord_error();
+                return;
+            }
 
-        /* Clamp latitude to -90..90 degree range */
-        if (coo.lp.phi > M_HALFPI)
-            coo.lp.phi = M_HALFPI;
-        if (coo.lp.phi < -M_HALFPI)
-            coo.lp.phi = -M_HALFPI;
+            /* Ensure longitude is in the -pi:pi range */
+            if (0 == P->over)
+                coo.lp.lam = adjlon(coo.lp.lam);
+        }
+
+        if (HUGE_VAL == coo.v[2]) {
+            coo = proj_coord_error();
+            return;
+        }
 
         /* If input latitude is geocentrical, convert to geographical */
         if (P->geoc)
-            coo = pj_geocentric_latitude (P, PJ_INV, coo);
+            coo = pj_geocentric_latitude(P, PJ_INV, coo);
 
-        /* Ensure longitude is in the -pi:pi range */
-        if (0==P->over)
-            coo.lp.lam = adjlon(coo.lp.lam);
-
-        if (P->hgridshift)
-            coo = proj_trans (P->hgridshift, PJ_INV, coo);
-        else if (P->helmert || (P->cart_wgs84 != nullptr && P->cart != nullptr)) {
-            coo = proj_trans (P->cart_wgs84, PJ_FWD, coo); /* Go cartesian in WGS84 frame */
-            if( P->helmert )
-                coo = proj_trans (P->helmert,    PJ_INV, coo); /* Step into local frame */
-            coo = proj_trans (P->cart,       PJ_INV, coo); /* Go back to angular using local ellps */
+        if (P->hgridshift) {
+            coo = proj_trans(P->hgridshift, PJ_INV, coo);
+            if (coo.lp.lam == HUGE_VAL)
+                return;
+        } else if (P->helmert ||
+                   (P->cart_wgs84 != nullptr && P->cart != nullptr)) {
+            coo = proj_trans(P->cart_wgs84, PJ_FWD,
+                             coo); /* Go cartesian in WGS84 frame */
+            if (P->helmert)
+                coo = proj_trans(P->helmert, PJ_INV,
+                                 coo); /* Step into local frame */
+            coo = proj_trans(P->cart, PJ_INV,
+                             coo); /* Go back to angular using local ellps */
+            if (coo.lp.lam == HUGE_VAL)
+                return;
         }
-        if (coo.lp.lam==HUGE_VAL)
-            return coo;
-        if (P->vgridshift)
-            coo = proj_trans (P->vgridshift, PJ_FWD, coo); /* Go orthometric from geometric */
 
-        /* Distance from central meridian, taking system zero meridian into account */
+        if (P->vgridshift)
+            coo = proj_trans(P->vgridshift, PJ_FWD,
+                             coo); /* Go orthometric from geometric */
+
+        /* Distance from central meridian, taking system zero meridian into
+         * account
+         */
         coo.lp.lam = (coo.lp.lam - P->from_greenwich) - P->lam0;
 
         /* Ensure longitude is in the -pi:pi range */
-        if (0==P->over)
+        if (0 == P->over)
             coo.lp.lam = adjlon(coo.lp.lam);
 
-        return coo;
+        return;
     }
 
+    if (HUGE_VAL == coo.v[0] || HUGE_VAL == coo.v[1] || HUGE_VAL == coo.v[2]) {
+        coo = proj_coord_error();
+        return;
+    }
 
     /* We do not support gridshifts on cartesian input */
-    if (INPUT_UNITS==PJ_IO_UNITS_CARTESIAN && P->helmert)
-            return proj_trans (P->helmert, PJ_INV, coo);
-    return coo;
+    if (INPUT_UNITS == PJ_IO_UNITS_CARTESIAN && P->helmert)
+        coo = proj_trans(P->helmert, PJ_INV, coo);
+    return;
 }
 
-
-static PJ_COORD fwd_finalize (PJ *P, PJ_COORD coo) {
+static void fwd_finalize(PJ *P, PJ_COORD &coo) {
 
     switch (OUTPUT_UNITS) {
 
@@ -119,7 +143,7 @@ static PJ_COORD fwd_finalize (PJ *P, PJ_COORD coo) {
     case PJ_IO_UNITS_CARTESIAN:
 
         if (P->is_geocent) {
-            coo = proj_trans (P->cart, PJ_FWD, coo);
+            coo = proj_trans(P->cart, PJ_FWD, coo);
         }
         coo.xyz.x *= P->fr_meter;
         coo.xyz.y *= P->fr_meter;
@@ -127,16 +151,17 @@ static PJ_COORD fwd_finalize (PJ *P, PJ_COORD coo) {
 
         break;
 
-    /* Classic proj.4 functions return plane coordinates in units of the semimajor axis */
+    /* Classic proj.4 functions return plane coordinates in units of the
+     * semimajor axis */
     case PJ_IO_UNITS_CLASSIC:
         coo.xy.x *= P->a;
         coo.xy.y *= P->a;
+        PROJ_FALLTHROUGH;
 
-    /* Falls through */ /* (<-- GCC warning silencer) */
     /* to continue processing in common with PJ_IO_UNITS_PROJECTED */
     case PJ_IO_UNITS_PROJECTED:
-        coo.xyz.x = P->fr_meter  * (coo.xyz.x + P->x0);
-        coo.xyz.y = P->fr_meter  * (coo.xyz.y + P->y0);
+        coo.xyz.x = P->fr_meter * (coo.xyz.x + P->x0);
+        coo.xyz.y = P->fr_meter * (coo.xyz.y + P->y0);
         coo.xyz.z = P->vfr_meter * (coo.xyz.z + P->z0);
         break;
 
@@ -149,10 +174,10 @@ static PJ_COORD fwd_finalize (PJ *P, PJ_COORD coo) {
     case PJ_IO_UNITS_RADIANS:
         coo.lpz.z = P->vfr_meter * (coo.lpz.z + P->z0);
 
-        if( P->is_long_wrap_set ) {
-            if( coo.lpz.lam != HUGE_VAL ) {
-                coo.lpz.lam  = P->long_wrap_center +
-                               adjlon(coo.lpz.lam - P->long_wrap_center);
+        if (P->is_long_wrap_set) {
+            if (coo.lpz.lam != HUGE_VAL) {
+                coo.lpz.lam = P->long_wrap_center +
+                              adjlon(coo.lpz.lam - P->long_wrap_center);
             }
         }
 
@@ -160,113 +185,127 @@ static PJ_COORD fwd_finalize (PJ *P, PJ_COORD coo) {
     }
 
     if (P->axisswap)
-        coo = proj_trans (P->axisswap, PJ_FWD, coo);
-
-    return coo;
+        coo = proj_trans(P->axisswap, PJ_FWD, coo);
 }
 
-
-static PJ_COORD error_or_coord(PJ *P, PJ_COORD coord, int last_errno) {
-    if (proj_errno(P))
+static inline PJ_COORD error_or_coord(PJ *P, PJ_COORD coord, int last_errno) {
+    if (P->ctx->last_errno)
         return proj_coord_error();
 
-    proj_errno_restore(P, last_errno);
+    P->ctx->last_errno = last_errno;
+
     return coord;
 }
 
-
 PJ_XY pj_fwd(PJ_LP lp, PJ *P) {
-    int last_errno;
-    PJ_COORD coo = {{0,0,0,0}};
+    PJ_COORD coo = {{0, 0, 0, 0}};
     coo.lp = lp;
 
-    last_errno = proj_errno_reset(P);
+    const int last_errno = P->ctx->last_errno;
+    P->ctx->last_errno = 0;
 
     if (!P->skip_fwd_prepare)
-        coo = fwd_prepare (P, coo);
-    if (HUGE_VAL==coo.v[0] || HUGE_VAL==coo.v[1])
-        return proj_coord_error ().xy;
+        fwd_prepare(P, coo);
+    if (HUGE_VAL == coo.v[0] || HUGE_VAL == coo.v[1])
+        return proj_coord_error().xy;
 
-    /* Do the transformation, using the lowest dimensional transformer available */
-    if (P->fwd)
-        coo.xy = P->fwd(coo.lp, P);
-    else if (P->fwd3d)
-        coo.xyz = P->fwd3d (coo.lpz, P);
-    else if (P->fwd4d)
-        coo = P->fwd4d (coo, P);
+    /* Do the transformation, using the lowest dimensional transformer available
+     */
+    if (P->fwd) {
+        const auto xy = P->fwd(coo.lp, P);
+        coo.xy = xy;
+    } else if (P->fwd3d) {
+        const auto xyz = P->fwd3d(coo.lpz, P);
+        coo.xyz = xyz;
+    } else if (P->fwd4d)
+        P->fwd4d(coo, P);
     else {
-        proj_errno_set (P, PROJ_ERR_OTHER_NO_INVERSE_OP);
-        return proj_coord_error ().xy;
+        proj_errno_set(P, PROJ_ERR_OTHER_NO_INVERSE_OP);
+        return proj_coord_error().xy;
     }
-    if (HUGE_VAL==coo.v[0])
-        return proj_coord_error ().xy;
+    if (HUGE_VAL == coo.v[0])
+        return proj_coord_error().xy;
 
     if (!P->skip_fwd_finalize)
-        coo = fwd_finalize (P, coo);
+        fwd_finalize(P, coo);
 
     return error_or_coord(P, coo, last_errno).xy;
 }
 
-
-
 PJ_XYZ pj_fwd3d(PJ_LPZ lpz, PJ *P) {
-    int last_errno;
-    PJ_COORD coo = {{0,0,0,0}};
+    PJ_COORD coo = {{0, 0, 0, 0}};
     coo.lpz = lpz;
 
-    last_errno = proj_errno_reset(P);
+    const int last_errno = P->ctx->last_errno;
+    P->ctx->last_errno = 0;
 
     if (!P->skip_fwd_prepare)
-        coo = fwd_prepare (P, coo);
-    if (HUGE_VAL==coo.v[0])
-        return proj_coord_error ().xyz;
+        fwd_prepare(P, coo);
+    if (HUGE_VAL == coo.v[0])
+        return proj_coord_error().xyz;
 
-    /* Do the transformation, using the lowest dimensional transformer feasible */
-    if (P->fwd3d)
-        coo.xyz = P->fwd3d(coo.lpz, P);
-    else if (P->fwd4d)
-        coo = P->fwd4d (coo, P);
-    else if (P->fwd)
-        coo.xy = P->fwd (coo.lp, P);
-    else {
-        proj_errno_set (P, PROJ_ERR_OTHER_NO_INVERSE_OP);
-        return proj_coord_error ().xyz;
+    /* Do the transformation, using the lowest dimensional transformer feasible
+     */
+    if (P->fwd3d) {
+        const auto xyz = P->fwd3d(coo.lpz, P);
+        coo.xyz = xyz;
+    } else if (P->fwd4d)
+        P->fwd4d(coo, P);
+    else if (P->fwd) {
+        const auto xy = P->fwd(coo.lp, P);
+        coo.xy = xy;
+    } else {
+        proj_errno_set(P, PROJ_ERR_OTHER_NO_INVERSE_OP);
+        return proj_coord_error().xyz;
     }
-    if (HUGE_VAL==coo.v[0])
-        return proj_coord_error ().xyz;
+    if (HUGE_VAL == coo.v[0])
+        return proj_coord_error().xyz;
 
     if (!P->skip_fwd_finalize)
-        coo = fwd_finalize (P, coo);
+        fwd_finalize(P, coo);
 
     return error_or_coord(P, coo, last_errno).xyz;
 }
 
+bool pj_fwd4d(PJ_COORD &coo, PJ *P) {
 
-
-PJ_COORD pj_fwd4d (PJ_COORD coo, PJ *P) {
-    int last_errno = proj_errno_reset(P);
+    const int last_errno = P->ctx->last_errno;
+    P->ctx->last_errno = 0;
 
     if (!P->skip_fwd_prepare)
-        coo = fwd_prepare (P, coo);
-    if (HUGE_VAL==coo.v[0])
-        return proj_coord_error ();
+        fwd_prepare(P, coo);
+    if (HUGE_VAL == coo.v[0]) {
+        coo = proj_coord_error();
+        return false;
+    }
 
     /* Call the highest dimensional converter available */
     if (P->fwd4d)
-        coo = P->fwd4d (coo, P);
-    else if (P->fwd3d)
-        coo.xyz  =  P->fwd3d (coo.lpz, P);
-    else if (P->fwd)
-        coo.xy  =  P->fwd (coo.lp, P);
-    else {
-        proj_errno_set (P, PROJ_ERR_OTHER_NO_INVERSE_OP);
-        return proj_coord_error ();
+        P->fwd4d(coo, P);
+    else if (P->fwd3d) {
+        const auto xyz = P->fwd3d(coo.lpz, P);
+        coo.xyz = xyz;
+    } else if (P->fwd) {
+        const auto xy = P->fwd(coo.lp, P);
+        coo.xy = xy;
+    } else {
+        proj_errno_set(P, PROJ_ERR_OTHER_NO_INVERSE_OP);
+        coo = proj_coord_error();
+        return false;
     }
-    if (HUGE_VAL==coo.v[0])
-        return proj_coord_error ();
+    if (HUGE_VAL == coo.v[0]) {
+        coo = proj_coord_error();
+        return false;
+    }
 
     if (!P->skip_fwd_finalize)
-        coo = fwd_finalize (P, coo);
+        fwd_finalize(P, coo);
 
-    return error_or_coord(P, coo, last_errno);
+    if (P->ctx->last_errno) {
+        coo = proj_coord_error();
+        return false;
+    }
+
+    P->ctx->last_errno = last_errno;
+    return true;
 }

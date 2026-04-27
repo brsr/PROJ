@@ -6,37 +6,48 @@ Language bindings
 
 PROJ bindings are available for a number of different development platforms.
 
-Python
-======
-`pyproj <https://pypi.python.org/pypi/pyproj>`_:
-Python interface (wrapper for PROJ)
-
-Ruby
+Clojure
 =======
 
-`proj4rb <https://github.com/cfis/proj4rb>`_:
-Bindings for PROJ in ruby
+`clj-proj <https://github.com/willcohen/clj-proj>`_:
+Clojure bindings with embedded native libraries (JNA) and GraalVM WASM fallback
 
-Rust
+Excel
+=====
+
+`proj.xll <https://github.com/jbuonagurio/proj.xll>`_:
+Excel add-in for PROJ map projections
+
+Fortran
 =======
 
-`proj <https://github.com/georust/proj>`_:
-Rust bindings for the latest stable version of PROJ
+`Fortran-Proj <https://gitlab.com/likeno/fortran-proj>`_:
+Bindings for PROJ in Fortran (By João Macedo @likeno)
 
 Go (Golang)
 ===========
-`go-proj <https://github.com/everystreet/go-proj>`_:
-Go bindings and idiomatic wrapper for PROJ
+`go-proj <https://github.com/twpayne/go-proj>`_:
+Go bindings for PROJ.
+
+Java
+====
+
+`clj-proj (Java API) <https://github.com/willcohen/clj-proj#java-api>`_:
+Java API with embedded native libraries (JNA) and GraalVM WASM fallback
+
+`PROJ-JNI <https://github.com/OSGeo/PROJ-JNI>`_:
+Java Native Interface for PROJ
+
+JavaScript
+==========
+
+`proj-wasm <https://github.com/willcohen/clj-proj#javascript--clojurescript>`_:
+ES6 module with WASM-compiled PROJ for Node.js and browsers
 
 Julia
 =====
-`Proj4.jl <https://github.com/JuliaGeo/Proj4.jl>`_:
+`Proj.jl <https://github.com/JuliaGeo/Proj.jl>`_:
 Julia bindings and idiomatic wrapper for PROJ.
-
-TCL
-========
-`proj4tcl <http://wiki.tcl.tk/41270>`_:
-Bindings for PROJ in tcl (critcl source)
 
 MySQL
 =====
@@ -44,20 +55,35 @@ MySQL
 `fProj4 <https://sourceforge.net/projects/mysqlscientific/files/fPROJ4/>`_:
 Bindings for PROJ in MySQL
 
-Excel
-========
+Perl
+====
+`Geo::LibProj::FFI <https://metacpan.org/pod/Geo::LibProj::FFI>`_:
+Foreign function interface for PROJ (version 6 and newer) in Perl
 
-`proj.xll <https://github.com/jbuonagurio/proj.xll>`_:
-Excel add-in for PROJ map projections
+Python
+======
+`pyproj <https://pypi.python.org/pypi/pyproj>`_:
+Python interface (wrapper for PROJ)
+
+Ruby
+====
+
+`proj4rb <https://github.com/cfis/proj4rb>`_:
+Bindings for PROJ in ruby
+
+Rust
+====
+
+`proj <https://github.com/georust/proj>`_:
+Rust bindings for the latest stable version of PROJ
+
+TCL
+===
+`proj4tcl <http://wiki.tcl.tk/41270>`_:
+Bindings for PROJ in tcl (critcl source)
 
 Visual Basic
-==================
+============
 
 `PROJ VB Wrappers <http://ftp.dfg.ca.gov/Public/BDB/Tools/proj4/proj_api.zip>`_:
 By Eric G. Miller.
-
-Fortran
-=======
-
-`Fortran-Proj <https://gitlab.com/likeno/fortran-proj>`_:
-Bindings for PROJ in Fortran (By João Macedo @likeno)

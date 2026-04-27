@@ -1,11 +1,20 @@
 name: Conda
 
+
 on:
   push:
-    branches: '*'
+      paths-ignore:
+          - 'docs/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  conda:
     name: Conda ${{ matrix.platform }}
     if: github.repository == 'OSGeo/PROJ'
 
@@ -13,16 +22,20 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        platform: ['ubuntu-latest','windows-latest','macos-latest']
+        # macos-15-intel: Intel
+        # macos-14: arm64
+        platform: ['ubuntu-latest','windows-latest','macos-15-intel','macos-14']
 
     env:
-      PLATFORM: ${{ matrix.platform }}
+      GHA_CI_PLATFORM: ${{ matrix.platform }}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v6
 
-    - uses: conda-incubator/setup-miniconda@v2
+    - uses: conda-incubator/setup-miniconda@v3
       with:
+        miniforge-version: latest
+        use-mamba: true
         channels: conda-forge
         auto-update-conda: true
 
@@ -38,7 +51,7 @@ jobs:
       working-directory: ./proj.4-feedstock
 
 
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v7
       with:
         name: ${{ matrix.platform }}-conda-package
         path: ./proj.4-feedstock/packages/

@@ -84,13 +84,13 @@ struct Meridian::Private {
 // ---------------------------------------------------------------------------
 
 Meridian::Meridian(const common::Angle &longitudeIn)
-    : d(internal::make_unique<Private>(longitudeIn)) {}
+    : d(std::make_unique<Private>(longitudeIn)) {}
 
 // ---------------------------------------------------------------------------
 
 #ifdef notdef
 Meridian::Meridian(const Meridian &other)
-    : IdentifiedObject(other), d(internal::make_unique<Private>(*other.d)) {}
+    : IdentifiedObject(other), d(std::make_unique<Private>(*other.d)) {}
 #endif
 
 // ---------------------------------------------------------------------------
@@ -141,27 +141,54 @@ void Meridian::_exportToWKT(
 // ---------------------------------------------------------------------------
 
 //! @cond Doxygen_Suppress
+void Meridian::_exportToJSON(
+    io::JSONFormatter *formatter) const // throw(FormattingException)
+{
+    auto writer = formatter->writer();
+    auto objectContext(
+        formatter->MakeObjectContext("Meridian", !identifiers().empty()));
+
+    const auto &l_long = longitude();
+    writer->AddObjKey("longitude");
+    const auto &unit = l_long.unit();
+    if (unit == common::UnitOfMeasure::DEGREE) {
+        writer->Add(l_long.value(), 15);
+    } else {
+        auto longitudeContext(formatter->MakeObjectContext(nullptr, false));
+        writer->AddObjKey("value");
+        writer->Add(l_long.value(), 15);
+        writer->AddObjKey("unit");
+        unit._exportToJSON(formatter);
+    }
+    if (formatter->outputId()) {
+        formatID(formatter);
+    }
+}
+//! @endcond
+
+// ---------------------------------------------------------------------------
+
+//! @cond Doxygen_Suppress
 struct CoordinateSystemAxis::Private {
     std::string abbreviation{};
     const AxisDirection *direction = &(AxisDirection::UNSPECIFIED);
     common::UnitOfMeasure unit{};
+    util::optional<RangeMeaning> rangeMeaning = util::optional<RangeMeaning>();
     util::optional<double> minimumValue{};
     util::optional<double> maximumValue{};
     MeridianPtr meridian{};
-    // TODO rangeMeaning
 };
 //! @endcond
 
 // ---------------------------------------------------------------------------
 
-CoordinateSystemAxis::CoordinateSystemAxis()
-    : d(internal::make_unique<Private>()) {}
+CoordinateSystemAxis::CoordinateSystemAxis() : d(std::make_unique<Private>()) {}
 
 // ---------------------------------------------------------------------------
 
 #ifdef notdef
 CoordinateSystemAxis::CoordinateSystemAxis(const CoordinateSystemAxis &other)
-    : IdentifiedObject(other), d(internal::make_unique<Private>(*other.d)) {}
+    : IdentifiedObject(other), d(std::make_unique<Private>(*other.d)) {}
 #endif
 
 // ---------------------------------------------------------------------------
@@ -245,6 +272,18 @@ CoordinateSystemAxis::maximumValue() PROJ_PURE_DEFN {
 
 // ---------------------------------------------------------------------------
 
+/** \brief Return the range meaning
+ *
+ * @return the range meaning, or empty.
+ * @since 9.2
+ */
+const util::optional<RangeMeaning> &
+CoordinateSystemAxis::rangeMeaning() PROJ_PURE_DEFN {
+    return d->rangeMeaning;
+}
+
+// ---------------------------------------------------------------------------
+
 /** \brief Return the meridian that the axis follows from the pole, for a
  * coordinate
  * reference system centered on a pole.
@@ -284,6 +323,43 @@ CoordinateSystemAxisNNPtr CoordinateSystemAxis::create(
 
 // ---------------------------------------------------------------------------
 
+/** \brief Instantiate a CoordinateSystemAxis.
+ *
+ * @param properties See \ref general_properties. The name should generally be
+ * defined.
+ * @param abbreviationIn Axis abbreviation (might be empty)
+ * @param directionIn Axis direction
+ * @param unitIn Axis unit
+ * @param minimumValueIn Minimum value along axis
+ * @param maximumValueIn Maximum value along axis
+ * @param rangeMeaningIn Range Meaning
+ * @param meridianIn The meridian that the axis follows from the pole, for a
+ * coordinate
+ * reference system centered on a pole, or nullptr
+ * @return a new CoordinateSystemAxis.
+ * @since 9.2
+ */
+CoordinateSystemAxisNNPtr CoordinateSystemAxis::create(
+    const util::PropertyMap &properties, const std::string &abbreviationIn,
+    const AxisDirection &directionIn, const common::UnitOfMeasure &unitIn,
+    const util::optional<double> &minimumValueIn,
+    const util::optional<double> &maximumValueIn,
+    const util::optional<RangeMeaning> &rangeMeaningIn,
+    const MeridianPtr &meridianIn) {
+    auto csa(CoordinateSystemAxis::nn_make_shared<CoordinateSystemAxis>());
+    csa->setProperties(properties);
+    csa->d->abbreviation = abbreviationIn;
+    csa->d->direction = &directionIn;
+    csa->d->unit = unitIn;
+    csa->d->minimumValue = minimumValueIn;
+    csa->d->maximumValue = maximumValueIn;
+    csa->d->rangeMeaning = rangeMeaningIn;
+    csa->d->meridian = meridianIn;
+    return csa;
+}
+
+// ---------------------------------------------------------------------------
+
 //! @cond Doxygen_Suppress
 void CoordinateSystemAxis::_exportToWKT(
     // cppcheck-suppress passedByValue
@@ -315,7 +391,8 @@ void CoordinateSystemAxis::_exportToWKT(io::WKTFormatter *formatter, int order,
     formatter->startNode(io::WKTConstants::AXIS, !identifiers().empty());
     const std::string &axisName = nameStr();
     const std::string &abbrev = abbreviation();
-    std::string parenthesizedAbbrev = "(" + abbrev + ")";
+    std::string parenthesizedAbbrev =
+        std::string("(").append(abbrev).append(")");
     std::string dir = direction().toString();
     std::string axisDesignation;
 
@@ -360,14 +437,14 @@ void CoordinateSystemAxis::_exportToWKT(io::WKTFormatter *formatter, int order,
         if (direction() == AxisDirection::GEOCENTRIC_X ||
             direction() == AxisDirection::GEOCENTRIC_Y ||
             direction() == AxisDirection::GEOCENTRIC_Z) {
-            axisDesignation = parenthesizedAbbrev;
+            axisDesignation = std::move(parenthesizedAbbrev);
         }
         // For cartesian CS with Easting/Northing, export only the abbreviation
         else if ((order == 1 && axisName == AxisName::Easting &&
                   abbrev == AxisAbbreviation::E) ||
                  (order == 2 && axisName == AxisName::Northing &&
                   abbrev == AxisAbbreviation::N)) {
-            axisDesignation = parenthesizedAbbrev;
+            axisDesignation = std::move(parenthesizedAbbrev);
         }
     }
     formatter->addQuotedString(axisDesignation);
@@ -384,6 +461,24 @@ void CoordinateSystemAxis::_exportToWKT(io::WKTFormatter *formatter, int order,
     if (formatter->outputUnit() &&
         unit().type() != common::UnitOfMeasure::Type::NONE) {
         unit()._exportToWKT(formatter);
+    }
+    if (isWKT2 && formatter->use2019Keywords()) {
+        if (d->minimumValue.has_value()) {
+            formatter->startNode(io::WKTConstants::AXISMINVALUE, false);
+            formatter->add(*(d->minimumValue));
+            formatter->endNode();
+        }
+        if (d->maximumValue.has_value()) {
+            formatter->startNode(io::WKTConstants::AXISMAXVALUE, false);
+            formatter->add(*(d->maximumValue));
+            formatter->endNode();
+        }
+        if (d->minimumValue.has_value() && d->maximumValue.has_value() &&
+            d->rangeMeaning.has_value()) {
+            formatter->startNode(io::WKTConstants::RANGEMEANING, false);
+            formatter->add(d->rangeMeaning->toString());
+            formatter->endNode();
+        }
     }
     if (formatter->outputId()) {
         formatID(formatter);
@@ -411,6 +506,13 @@ void CoordinateSystemAxis::_exportToJSON(
     writer->AddObjKey("direction");
     writer->Add(direction().toString());
 
+    const auto &l_meridian = meridian();
+    if (l_meridian) {
+        writer->AddObjKey("meridian");
+        formatter->setOmitTypeInImmediateChild();
+        l_meridian->_exportToJSON(formatter);
+    }
+
     const auto &l_unit(unit());
     if (l_unit == common::UnitOfMeasure::METRE ||
         l_unit == common::UnitOfMeasure::DEGREE) {
@@ -419,6 +521,22 @@ void CoordinateSystemAxis::_exportToJSON(
     } else if (l_unit.type() != common::UnitOfMeasure::Type::NONE) {
         writer->AddObjKey("unit");
         l_unit._exportToJSON(formatter);
+    }
+
+    if (d->minimumValue.has_value()) {
+        writer->AddObjKey("minimum_value");
+        writer->Add(*(d->minimumValue));
+    }
+
+    if (d->maximumValue.has_value()) {
+        writer->AddObjKey("maximum_value");
+        writer->Add(*(d->maximumValue));
+    }
+
+    if (d->minimumValue.has_value() && d->maximumValue.has_value() &&
+        d->rangeMeaning.has_value()) {
+        writer->AddObjKey("range_meaning");
+        writer->Add(d->rangeMeaning->toString());
     }
 
     if (formatter->outputId()) {
@@ -481,13 +599,13 @@ struct CoordinateSystem::Private {
 
 CoordinateSystem::CoordinateSystem(
     const std::vector<CoordinateSystemAxisNNPtr> &axisIn)
-    : d(internal::make_unique<Private>(axisIn)) {}
+    : d(std::make_unique<Private>(axisIn)) {}
 
 // ---------------------------------------------------------------------------
 
 #ifdef notdef
 CoordinateSystem::CoordinateSystem(const CoordinateSystem &other)
-    : IdentifiedObject(other), d(internal::make_unique<Private>(*other.d)) {}
+    : IdentifiedObject(other), d(std::make_unique<Private>(*other.d)) {}
 #endif
 
 // ---------------------------------------------------------------------------
@@ -628,6 +746,27 @@ bool CoordinateSystem::_isEquivalentTo(
 }
 //! @endcond
 
+//! @cond Doxygen_Suppress
+// ---------------------------------------------------------------------------
+
+InvalidCoordinateSystem::InvalidCoordinateSystem(const char *message)
+    : Exception(message) {}
+
+// ---------------------------------------------------------------------------
+
+InvalidCoordinateSystem::InvalidCoordinateSystem(const std::string &message)
+    : Exception(message) {}
+
+// ---------------------------------------------------------------------------
+
+InvalidCoordinateSystem::InvalidCoordinateSystem(
+    const InvalidCoordinateSystem &) = default;
+
+// ---------------------------------------------------------------------------
+
+InvalidCoordinateSystem::~InvalidCoordinateSystem() = default;
+//! @endcond
+
 // ---------------------------------------------------------------------------
 
 //! @cond Doxygen_Suppress
@@ -660,6 +799,27 @@ SphericalCSNNPtr SphericalCS::create(const util::PropertyMap &properties,
                                      const CoordinateSystemAxisNNPtr &axis2,
                                      const CoordinateSystemAxisNNPtr &axis3) {
     std::vector<CoordinateSystemAxisNNPtr> axis{axis1, axis2, axis3};
+    auto cs(SphericalCS::nn_make_shared<SphericalCS>(axis));
+    cs->setProperties(properties);
+    return cs;
+}
+
+// ---------------------------------------------------------------------------
+
+/** \brief Instantiate a SphericalCS with 2 axis.
+ *
+ * This is an extension to ISO19111 to support (planet)-ocentric CS with
+ * geocentric latitude.
+ *
+ * @param properties See \ref general_properties.
+ * @param axis1 The first axis.
+ * @param axis2 The second axis.
+ * @return a new SphericalCS.
+ */
+SphericalCSNNPtr SphericalCS::create(const util::PropertyMap &properties,
+                                     const CoordinateSystemAxisNNPtr &axis1,
+                                     const CoordinateSystemAxisNNPtr &axis2) {
+    std::vector<CoordinateSystemAxisNNPtr> axis{axis1, axis2};
     auto cs(SphericalCS::nn_make_shared<SphericalCS>(axis));
     cs->setProperties(properties);
     return cs;
@@ -962,12 +1122,20 @@ CartesianCS::CartesianCS(const CartesianCS &) = default;
  * @param properties See \ref general_properties.
  * @param axis1 The first axis.
  * @param axis2 The second axis.
+ * @param enforceSameUnit Whether to check that all axis have the same unit.
+ * (since 9.9)
  * @return a new CartesianCS.
+ * @throw InvalidCoordinateSystem in case of error (since 9.9)
  */
 CartesianCSNNPtr CartesianCS::create(const util::PropertyMap &properties,
                                      const CoordinateSystemAxisNNPtr &axis1,
-                                     const CoordinateSystemAxisNNPtr &axis2) {
+                                     const CoordinateSystemAxisNNPtr &axis2,
+                                     bool enforceSameUnit) {
     std::vector<CoordinateSystemAxisNNPtr> axis{axis1, axis2};
+    if (enforceSameUnit && axis1->unit() != axis2->unit()) {
+        throw InvalidCoordinateSystem(
+            "All axis of a CartesianCS must have the same unit");
+    }
     auto cs(CartesianCS::nn_make_shared<CartesianCS>(axis));
     cs->setProperties(properties);
     return cs;
@@ -981,13 +1149,22 @@ CartesianCSNNPtr CartesianCS::create(const util::PropertyMap &properties,
  * @param axis1 The first axis.
  * @param axis2 The second axis.
  * @param axis3 The third axis.
+ * @param enforceSameUnit Whether to check that all axis have the same unit.
+ * (since 9.9)
  * @return a new CartesianCS.
+ * @throw InvalidCoordinateSystem in case of error (since 9.9)
  */
 CartesianCSNNPtr CartesianCS::create(const util::PropertyMap &properties,
                                      const CoordinateSystemAxisNNPtr &axis1,
                                      const CoordinateSystemAxisNNPtr &axis2,
-                                     const CoordinateSystemAxisNNPtr &axis3) {
+                                     const CoordinateSystemAxisNNPtr &axis3,
+                                     bool enforceSameUnit) {
     std::vector<CoordinateSystemAxisNNPtr> axis{axis1, axis2, axis3};
+    if (enforceSameUnit &&
+        (axis1->unit() != axis2->unit() || axis1->unit() != axis3->unit())) {
+        throw InvalidCoordinateSystem(
+            "All axis of a CartesianCS must have the same unit");
+    }
     auto cs(CartesianCS::nn_make_shared<CartesianCS>(axis));
     cs->setProperties(properties);
     return cs;
@@ -1150,6 +1327,73 @@ CartesianCS::alterUnit(const common::UnitOfMeasure &unit) const {
 // ---------------------------------------------------------------------------
 
 //! @cond Doxygen_Suppress
+AffineCS::~AffineCS() = default;
+//! @endcond
+
+// ---------------------------------------------------------------------------
+
+AffineCS::AffineCS(const std::vector<CoordinateSystemAxisNNPtr> &axisIn)
+    : CoordinateSystem(axisIn) {}
+
+// ---------------------------------------------------------------------------
+
+/** \brief Instantiate a AffineCS.
+ *
+ * @param properties See \ref general_properties.
+ * @param axis1 The first axis.
+ * @param axis2 The second axis.
+ * @return a new AffineCS.
+ */
+AffineCSNNPtr AffineCS::create(const util::PropertyMap &properties,
+                               const CoordinateSystemAxisNNPtr &axis1,
+                               const CoordinateSystemAxisNNPtr &axis2) {
+    std::vector<CoordinateSystemAxisNNPtr> axis{axis1, axis2};
+    auto cs(AffineCS::nn_make_shared<AffineCS>(axis));
+    cs->setProperties(properties);
+    return cs;
+}
+
+// ---------------------------------------------------------------------------
+
+/** \brief Instantiate a AffineCS.
+ *
+ * @param properties See \ref general_properties.
+ * @param axis1 The first axis.
+ * @param axis2 The second axis.
+ * @param axis3 The third axis.
+ * @return a new AffineCS.
+ */
+AffineCSNNPtr AffineCS::create(const util::PropertyMap &properties,
+                               const CoordinateSystemAxisNNPtr &axis1,
+                               const CoordinateSystemAxisNNPtr &axis2,
+                               const CoordinateSystemAxisNNPtr &axis3) {
+    std::vector<CoordinateSystemAxisNNPtr> axis{axis1, axis2, axis3};
+    auto cs(AffineCS::nn_make_shared<AffineCS>(axis));
+    cs->setProperties(properties);
+    return cs;
+}
+
+// ---------------------------------------------------------------------------
+
+//! @cond Doxygen_Suppress
+AffineCSNNPtr AffineCS::alterUnit(const common::UnitOfMeasure &unit) const {
+    const auto &l_axisList = CoordinateSystem::getPrivate()->axisList;
+    if (l_axisList.size() == 2) {
+        return AffineCS::create(util::PropertyMap(),
+                                l_axisList[0]->alterUnit(unit),
+                                l_axisList[1]->alterUnit(unit));
+    } else {
+        assert(l_axisList.size() == 3);
+        return AffineCS::create(
+            util::PropertyMap(), l_axisList[0]->alterUnit(unit),
+            l_axisList[1]->alterUnit(unit), l_axisList[2]->alterUnit(unit));
+    }
+}
+//! @endcond
+
+// ---------------------------------------------------------------------------
+
+//! @cond Doxygen_Suppress
 OrdinalCS::~OrdinalCS() = default;
 //! @endcond
 
@@ -1217,8 +1461,9 @@ ParametricCS::create(const util::PropertyMap &properties,
 // ---------------------------------------------------------------------------
 
 AxisDirection::AxisDirection(const std::string &nameIn) : CodeList(nameIn) {
-    assert(registry.find(nameIn) == registry.end());
-    registry[nameIn] = this;
+    auto lowerName = tolower(nameIn);
+    assert(registry.find(lowerName) == registry.end());
+    registry[lowerName] = this;
 }
 
 // ---------------------------------------------------------------------------
@@ -1226,7 +1471,30 @@ AxisDirection::AxisDirection(const std::string &nameIn) : CodeList(nameIn) {
 //! @cond Doxygen_Suppress
 const AxisDirection *
 AxisDirection::valueOf(const std::string &nameIn) noexcept {
-    auto iter = registry.find(nameIn);
+    auto iter = registry.find(tolower(nameIn));
+    if (iter == registry.end())
+        return nullptr;
+    return iter->second;
+}
+//! @endcond
+
+// ---------------------------------------------------------------------------
+
+RangeMeaning::RangeMeaning(const std::string &nameIn) : CodeList(nameIn) {
+    auto lowerName = tolower(nameIn);
+    assert(registry.find(lowerName) == registry.end());
+    registry[lowerName] = this;
+}
+
+// ---------------------------------------------------------------------------
+
+RangeMeaning::RangeMeaning() : CodeList(std::string()) {}
+
+// ---------------------------------------------------------------------------
+
+//! @cond Doxygen_Suppress
+const RangeMeaning *RangeMeaning::valueOf(const std::string &nameIn) noexcept {
+    auto iter = registry.find(tolower(nameIn));
     if (iter == registry.end())
         return nullptr;
     return iter->second;
@@ -1238,14 +1506,15 @@ AxisDirection::valueOf(const std::string &nameIn) noexcept {
 
 AxisDirectionWKT1::AxisDirectionWKT1(const std::string &nameIn)
     : CodeList(nameIn) {
-    assert(registry.find(nameIn) == registry.end());
-    registry[nameIn] = this;
+    auto lowerName = tolower(nameIn);
+    assert(registry.find(lowerName) == registry.end());
+    registry[lowerName] = this;
 }
 
 // ---------------------------------------------------------------------------
 
 const AxisDirectionWKT1 *AxisDirectionWKT1::valueOf(const std::string &nameIn) {
-    auto iter = registry.find(nameIn);
+    auto iter = registry.find(tolower(nameIn));
     if (iter == registry.end())
         return nullptr;
     return iter->second;
@@ -1296,7 +1565,7 @@ DateTimeTemporalCS::create(const util::PropertyMap &properties,
 // ---------------------------------------------------------------------------
 
 std::string DateTimeTemporalCS::getWKT2Type(bool use2019Keywords) const {
-    return use2019Keywords ? "TemporalDateTime" : "temporal";
+    return use2019Keywords ? WKT2_2019_TYPE : WKT2_2015_TYPE;
 }
 
 // ---------------------------------------------------------------------------
@@ -1329,7 +1598,7 @@ TemporalCountCS::create(const util::PropertyMap &properties,
 // ---------------------------------------------------------------------------
 
 std::string TemporalCountCS::getWKT2Type(bool use2019Keywords) const {
-    return use2019Keywords ? "TemporalCount" : "temporal";
+    return use2019Keywords ? WKT2_2019_TYPE : WKT2_2015_TYPE;
 }
 
 // ---------------------------------------------------------------------------
@@ -1362,7 +1631,7 @@ TemporalMeasureCS::create(const util::PropertyMap &properties,
 // ---------------------------------------------------------------------------
 
 std::string TemporalMeasureCS::getWKT2Type(bool use2019Keywords) const {
-    return use2019Keywords ? "TemporalMeasure" : "temporal";
+    return use2019Keywords ? WKT2_2019_TYPE : WKT2_2015_TYPE;
 }
 
 } // namespace cs

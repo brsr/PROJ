@@ -9,7 +9,7 @@
 ################################################################################
 # General settings
 ################################################################################
-cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.16)
 
 project(PROJ
   DESCRIPTION "PROJ coordinate transformation software library"
@@ -19,10 +19,12 @@ project(PROJ
 # Only interpret if() arguments as variables or keywords when unquoted
 cmake_policy(SET CMP0054 NEW)
 
+include(CheckCXXCompilerFlag)
+
 # Set C++ version
 # Make CMAKE_CXX_STANDARD available as cache option overridable by user
-set(CMAKE_CXX_STANDARD 11
-  CACHE STRING "C++ standard version to use (default is 11)")
+set(CMAKE_CXX_STANDARD 17
+  CACHE STRING "C++ standard version to use (default is 17)")
 message(STATUS "Requiring C++${CMAKE_CXX_STANDARD}")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -37,13 +39,6 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 message(STATUS "Requiring C${CMAKE_C_STANDARD} - done")
 
-set(CMAKE_SKIP_BUILD_RPATH FALSE)
-set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-if(APPLE)
-    set(MACOSX_RPATH ON)
-endif()
-
 # Set global -fvisibility=hidden
 set(CMAKE_C_VISIBILITY_PRESET hidden)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
@@ -51,27 +46,62 @@ set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 # Set warnings as variables, then store as cache options
 set(PROJ_common_WARN_FLAGS  # common only to GNU/Clang C/C++
   -Wall
+  -Wdate-time
+  -Werror=format-security
+  -Werror=vla
   -Wextra
-  -Wswitch
-  -Wshadow
-  -Wunused-parameter
-  -Wmissing-declarations
   -Wformat
-  -Wformat-security
+  -Wimplicit-fallthrough
+  -Wmissing-declarations
+  -Wshadow
+  -Wswitch
+  -Wunused-parameter
 )
 if("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
+  set(PROJ_common_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
+    -Wduplicated-cond
+    -Wduplicated-branches
+    -Wlogical-op
+  )
   set(PROJ_C_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
     -Wmissing-prototypes
   )
-  set(PROJ_CXX_WARN_FLAGS ${PROJ_common_WARN_FLAGS})
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 8)
+        set(PROJ_CXX_WARN_FLAGS ${PROJ_common_WARN_FLAGS} -Wextra-semi)
+  endif()
+  set(PROJ_CXX_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
+    -Weffc++
+    # -Wold-style-cast
+    -Woverloaded-virtual
+    -Wzero-as-null-pointer-constant
+  )
 elseif("${CMAKE_C_COMPILER_ID}" MATCHES "Clang")
+  set(PROJ_common_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
+    -Wcomma
+    -Wdeprecated
+    -Wdocumentation -Wno-documentation-deprecated-sync
+    -Wfloat-conversion
+    -Wlogical-op-parentheses
+  )
+
+  # Not sure about the minimum version, but clang 12 complains about \file, @cond Doxygen_Suppress, etc.
+  if("${CMAKE_CXX_COMPILER_VERSION}" VERSION_GREATER_EQUAL 18.0.0)
+      set(PROJ_common_WARN_FLAGS ${PROJ_common_WARN_FLAGS} -Wdocumentation-unknown-command)
+  endif()
+
   set(PROJ_C_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
     -Wmissing-prototypes
-    -Wfloat-conversion
     -Wc11-extensions
   )
   set(PROJ_CXX_WARN_FLAGS ${PROJ_common_WARN_FLAGS}
-    -Wfloat-conversion
+    -Weffc++
+    -Wextra-semi
+    # -Wold-style-cast
+    -Woverloaded-virtual
+    -Wshorten-64-to-32
+    -Wunused-private-field
+    -Wzero-as-null-pointer-constant
+    -Wweak-vtables
   )
 elseif("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC")
   add_definitions(/D_CRT_SECURE_NO_WARNINGS) # Eliminate deprecation warnings
@@ -80,6 +110,11 @@ elseif("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC")
     /wd4706  # Suppress warning about assignment within conditional expression
     /wd4996  # Suppress warning about sprintf, etc., being unsafe
   )
+  if("$ENV{VSCMD_ARG_TGT_ARCH}" STREQUAL "arm64")
+    # Suppress an inaccurate warning when compiling for an MSVC/ARM64 platform
+    # It incorrectly assumes a division by zero is possible despite a check
+    set(PROJ_C_WARN_FLAGS ${PROJ_C_WARN_FLAGS} /wd4723)
+  endif()
   set(PROJ_CXX_WARN_FLAGS /EHsc ${PROJ_C_WARN_FLAGS})
 elseif("${CMAKE_C_COMPILER_ID}" STREQUAL "Intel")
   if(MSVC)
@@ -88,6 +123,21 @@ elseif("${CMAKE_C_COMPILER_ID}" STREQUAL "Intel")
   else()
     set(PROJ_C_WARN_FLAGS -Wall)
     set(PROJ_CXX_WARN_FLAGS -Wall)
+  endif()
+endif()
+
+if (CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
+  # Intel CXX compiler based on clang defaults to -ffast-math, which
+  # breaks std::isinf(), std::isnan(), etc.
+  set(CMAKE_C_FLAGS ${CMAKE_C_FLAGS} -fno-fast-math)
+  set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} -fno-fast-math)
+endif ()
+
+# Add other supported compiler flags
+if(("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU") OR ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang"))
+  check_cxx_compiler_flag(-Wdeprecated-copy-dtor HAVE_DEP_COPY_DTOR_FLAG)
+  if(HAVE_DEP_COPY_DTOR_FLAG)
+    set(PROJ_CXX_WARN_FLAGS ${PROJ_CXX_WARN_FLAGS} -Wdeprecated-copy-dtor)
   endif()
 endif()
 
@@ -110,16 +160,25 @@ message(STATUS "Configuring PROJ:")
 #PROJ version information
 ################################################################################
 include(ProjVersion)
-proj_version(MAJOR 8 MINOR 1 PATCH 0)
-set(PROJ_API_VERSION "22")
-set(PROJ_BUILD_VERSION "22.0.0")
+proj_version(MAJOR 9 MINOR 9 PATCH 0)
+set(PROJ_SOVERSION 25)
+set(PROJ_BUILD_VERSION "${PROJ_SOVERSION}.${PROJ_VERSION}")
 
 ################################################################################
 # Build features and variants
 ################################################################################
+
+include(Ccache)
 include(ProjConfig)
 include(ProjMac)
 include(policies)
+
+##############################################
+### SWITCH BETWEEN STATIC OR SHARED LIBRARY###
+##############################################
+
+# default config is shared
+option(BUILD_SHARED_LIBS "Build PROJ library shared." ON)
 
 ################################################################################
 # Check for nlohmann_json
@@ -169,15 +228,29 @@ if(NOT EXE_SQLITE3)
   message(SEND_ERROR "sqlite3 binary not found!")
 endif()
 
-find_package(Sqlite3 REQUIRED)
-if(NOT SQLITE3_FOUND)
-  message(SEND_ERROR "sqlite3 dependency not found!")
+# Deprecated variables since PROJ 9.4.0
+if(DEFINED SQLITE3_INCLUDE_DIR)
+  message(DEPRECATION "Use SQLite3_INCLUDE_DIR instead of SQLITE3_INCLUDE_DIR")
+  set(SQLite3_INCLUDE_DIR ${SQLITE3_INCLUDE_DIR})
+endif()
+if(DEFINED SQLITE3_LIBRARY)
+  message(DEPRECATION "Use SQLite3_LIBRARY instead of SQLITE3_LIBRARY")
+  set(SQLite3_LIBRARY ${SQLITE3_LIBRARY})
 endif()
 
-# Would build and run with older versions, but with horrible performance
-# See https://github.com/OSGeo/PROJ/issues/1718
-if("${SQLITE3_VERSION}" VERSION_LESS "3.11")
-  message(SEND_ERROR "sqlite3 >= 3.11 required!")
+find_package(SQLite3 3.11 REQUIRED)
+
+if(NOT TARGET SQLite3::SQLite3) # CMake < 4.3
+  # Remove after CMake version bump to 3.18+
+  get_target_property(IS_SQLITE3_IMPORTED SQLite::SQLite3 IMPORTED)
+  if(IS_SQLITE3_IMPORTED AND CMAKE_VERSION VERSION_LESS "3.18")
+    set_target_properties(SQLite::SQLite3 PROPERTIES IMPORTED_GLOBAL TRUE)
+    message(DEPRECATION "If your project consumes PROJ as a subdirectory \
+      and also uses either the SQLite3::SQLite3 or SQLite::SQLite3 target, \
+      make sure you have your own call to find_package.\nThese targets \
+      will no longer be available to the global CMake scope once PROJ bumps to CMake v3.18+.")
+  endif()
+  add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
 endif()
 
 ################################################################################
@@ -211,16 +284,40 @@ if(ENABLE_CURL)
   find_package(CURL REQUIRED)
   if(CURL_FOUND)
     set(CURL_ENABLED TRUE)
+
+    # Curl SSL options are described in
+    #   https://curl.se/libcurl/c/CURLOPT_SSL_OPTIONS.html
+    #set(CURLSSLOPT_NO_REVOKE 2)
+    #set(SSL_OPTIONS ${CURLSSLOPT_NO_REVOKE})
+    #add_compile_definitions(SSL_OPTIONS=${SSL_OPTIONS})
+
   else()
     message(SEND_ERROR "curl dependency not found!")
   endif()
 endif()
 
 ################################################################################
+# Check for Emscripten fetch
+################################################################################
 
-option(PROJ_LIB_ENV_VAR_TRIED_LAST "Whether the PROJ_LIB environment variable should be tried after the hardcoded location" OFF)
-if(PROJ_LIB_ENV_VAR_TRIED_LAST)
-    add_definitions(-DPROJ_LIB_ENV_VAR_TRIED_LAST)
+option(ENABLE_EMSCRIPTEN_FETCH "Enable Emscripten fetch support" OFF)
+set(EMSCRIPTEN_FETCH_ENABLED FALSE)
+if(ENABLE_EMSCRIPTEN_FETCH)
+  set(EMSCRIPTEN_FETCH_ENABLED TRUE)
+endif()
+
+################################################################################
+
+option(EMBED_PROJ_DATA_PATH "Whether the PROJ_DATA_PATH should be embedded" ON)
+
+if(DEFINED PROJ_LIB_ENV_VAR_TRIED_LAST)
+  set(PROJ_DATA_ENV_VAR_TRIED_LAST ${PROJ_LIB_ENV_VAR_TRIED_LAST})
+  message(WARNING "PROJ_LIB_ENV_VAR_TRIED_LAST option has been renamed to PROJ_DATA_ENV_VAR_TRIED_LAST. PROJ_LIB_ENV_VAR_TRIED_LAST is still working for now, but may be completely replaced by PROJ_DATA_ENV_VAR_TRIED_LAST in a future release")
+else()
+  option(PROJ_DATA_ENV_VAR_TRIED_LAST "Whether the PROJ_DATA environment variable should be tried after the hardcoded location" OFF)
+endif()
+if(PROJ_DATA_ENV_VAR_TRIED_LAST)
+    add_definitions(-DPROJ_DATA_ENV_VAR_TRIED_LAST)
 endif()
 
 ################################################################################
@@ -228,32 +325,9 @@ endif()
 ################################################################################
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 find_package(Threads)
-
-include(CheckIncludeFiles)
-
-include(CheckCSourceCompiles)
-if(MSVC)
-  set(CMAKE_REQUIRED_FLAGS "${CMAKE_C_FLAGS} /WX /W4")
-else()
-  set(CMAKE_REQUIRED_LIBRARIES m)
-  set(CMAKE_REQUIRED_FLAGS "${CMAKE_C_FLAGS} -Werror -Wall")
-endif()
-
 if(Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
   set(CMAKE_REQUIRED_LIBRARIES
     "${CMAKE_REQUIRED_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT}")
-  check_c_source_compiles("
-#include <pthread.h>
-
-int main(int argc, char* argv[]) {
-  (void)PTHREAD_MUTEX_RECURSIVE;
-  (void)argv;
-  return argc;
-}
-  " HAVE_PTHREAD_MUTEX_RECURSIVE_DEFN)
-  if(HAVE_PTHREAD_MUTEX_RECURSIVE_DEFN)
-    add_definitions(-DHAVE_PTHREAD_MUTEX_RECURSIVE=1)
-  endif()
 endif()
 
 # Set a default build type for single-configuration cmake generators if
@@ -281,33 +355,96 @@ link_directories(${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 # Installation
 ################################################################################
 include(ProjInstallPath)
-set(BINDIR "${DEFAULT_BINDIR}"
-  CACHE PATH "The directory to install binaries into.")
-set(LIBDIR "${DEFAULT_LIBDIR}"
-  CACHE PATH "The directory to install libraries into.")
-set(DATADIR "${DEFAULT_DATADIR}"
-  CACHE PATH "The directory to install data files into.")
-set(DOCDIR "${DEFAULT_DOCDIR}"
-  CACHE PATH "The directory to install doc files into.")
-set(INCLUDEDIR "${DEFAULT_INCLUDEDIR}"
-  CACHE PATH "The directory to install includes into.")
-set(CMAKECONFIGDIR "${DEFAULT_CMAKEDIR}"
-  CACHE PATH "Parent of the directory to install cmake config files into.")
+
+# By default GNUInstallDirs will use the upper case project name
+# for CMAKE_INSTALL_DOCDIR, resulting in something like share/doc/PROJ
+# instead of share/doc/proj which historically have been the path used
+# by the project.
+# Here force the use of a lower case project name and reset after
+# GNUInstallDirs has done its thing
+set(PROJECT_NAME_ORIGINAL "${PROJECT_NAME}")
+string(TOLOWER "${PROJECT_NAME}" PROJECT_NAME)
+
+include(GNUInstallDirs)
+
+set(PROJECT_NAME "${PROJECT_NAME_ORIGINAL}")
+
+set(PROJ_DATA_PATH "${CMAKE_INSTALL_FULL_DATADIR}/proj")
 
 ################################################################################
 # Tests
 ################################################################################
-include(CTest)
 
+option(BUILD_TESTING "Build the testing tree." ON)
 if(BUILD_TESTING)
+  enable_testing()
   include(ProjTest)
 else()
   message(STATUS "Testing disabled")
 endif()
 
 ################################################################################
+# Whether we should embed resources
+################################################################################
+
+include(CheckCSourceCompiles)
+function (is_sharp_embed_available res)
+    if (NOT EMSCRIPTEN AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.21 AND
+        ((CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 15.0) OR
+         (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 19.0)))
+        # CMAKE_C_STANDARD=23 only supported since CMake 3.21
+        set(TEST_SHARP_EMBED
+          "static const unsigned char embedded[] = {\n#embed __FILE__\n};\nint main() { (void)embedded; return 0;}"
+        )
+        set(CMAKE_C_STANDARD_BACKUP "${CMAKE_C_STANDARD}")
+        set(CMAKE_C_STANDARD "23")
+        check_c_source_compiles("${TEST_SHARP_EMBED}" _TEST_SHARP_EMBED)
+        set(CMAKE_C_STANDARD "${CMAKE_C_STANDARD_BACKUP}")
+        if (_TEST_SHARP_EMBED)
+            set(${res} ON PARENT_SCOPE)
+        else()
+            set(${res} OFF PARENT_SCOPE)
+        endif()
+    else()
+        set(${res} OFF PARENT_SCOPE)
+    endif()
+endfunction()
+
+is_sharp_embed_available(IS_SHARP_EMBED_AVAILABLE_RES)
+if (NOT DEFINED BUILD_SHARED_LIBS)
+    message(FATAL_ERROR "BUILD_SHARED_LIBS should be set")
+endif()
+if (NOT BUILD_SHARED_LIBS)
+    set(DEFAULT_EMBED_RESOURCE_FILES ON)
+else()
+    set(DEFAULT_EMBED_RESOURCE_FILES OFF)
+endif()
+option(EMBED_RESOURCE_FILES "Whether resource files (limited to proj.db) should be embedded into the PROJ library" ${DEFAULT_EMBED_RESOURCE_FILES})
+
+option(USE_ONLY_EMBEDDED_RESOURCE_FILES "Whether embedded resource files (limited to proj.db) should be used (should nominally be used together with EMBED_RESOURCE_FILES=ON, otherwise this will result in non-functional builds)" OFF)
+
+if (USE_ONLY_EMBEDDED_RESOURCE_FILES AND NOT EMBED_RESOURCE_FILES)
+  message(WARNING "USE_ONLY_EMBEDDED_RESOURCE_FILES=ON set but EMBED_RESOURCE_FILES=OFF: some drivers will lack required resource files")
+endif()
+
+################################################################################
 # Build configured components
 ################################################################################
+
+set(PROJ_DICTIONARY
+  world
+  other.extra
+  nad27
+  GL27
+  nad83
+  nad.lst
+  CH
+  ITRF2000
+  ITRF2008
+  ITRF2014
+  ITRF2020
+)
+
 include_directories(${PROJ_SOURCE_DIR}/src)
 
 add_subdirectory(data)
@@ -319,74 +456,99 @@ if(BUILD_TESTING)
   add_subdirectory(test)
 endif()
 
-set(docfiles COPYING NEWS AUTHORS)
+option(BUILD_EXAMPLES "Whether to build example programs" OFF)
+if(BUILD_EXAMPLES)
+  add_subdirectory(examples)
+endif()
+
+add_subdirectory(scripts)
+
+set(docfiles COPYING NEWS.md AUTHORS.md)
 install(FILES ${docfiles}
-        DESTINATION "${DOCDIR}")
+        DESTINATION ${CMAKE_INSTALL_DOCDIR})
+
+################################################################################
+# Build debug symbols
+################################################################################
+option(EXPORT_PDB "Export PDB file" OFF)
+
+if (WIN32 AND EXPORT_PDB)
+  target_compile_options(proj PRIVATE /Zi /Zf)
+  target_link_options(proj PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+
+  if(BUILD_SHARED_LIBS)
+    set(pdbFile $<TARGET_PDB_FILE:proj>)
+  else()
+    set(pdbDirFullPath ${CMAKE_BINARY_DIR}/lib)
+    set_target_properties(proj
+        PROPERTIES
+            COMPILE_PDB_OUTPUT_DIRECTORY ${pdbDirFullPath}
+            COMPILE_PDB_NAME proj)
+    set(pdbFile ${pdbDirFullPath}/proj.pdb)
+  endif()
+
+  install(FILES ${pdbFile} DESTINATION lib)
+endif()
 
 ################################################################################
 # pkg-config support
 ################################################################################
-if(UNIX OR MINGW)
-  configure_proj_pc()
+configure_proj_pc()
 
-  install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/proj.pc
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
-endif()
+install(FILES
+  ${CMAKE_CURRENT_BINARY_DIR}/proj.pc
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
 
 ################################################################################
 # "make dist" workalike
 ################################################################################
 
-set(CPACK_SOURCE_GENERATOR "TGZ;ZIP")
-set(CPACK_SOURCE_PACKAGE_FILE_NAME "proj-${PROJ_VERSION}")
-set(CPACK_PACKAGE_VENDOR "OSGeo")
-set(CPACK_PACKAGE_VERSION_MAJOR ${PROJ_VERSION_MAJOR})
-set(CPACK_PACKAGE_VERSION_MINOR ${PROJ_VERSION_MINOR})
-set(CPACK_PACKAGE_VERSION_PATCH ${PROJ_VERSION_PATCH})
-set(CPACK_VERBATIM_VARIABLES TRUE)
-set(CPACK_SOURCE_IGNORE_FILES
-  /\\..*  # any file/directory starting with .
-  /.*\\.yml
-  /.*\\.gz
-  /.*\\.zip
-  /.*build.*/
-  \\.deps
-  /autogen\\.sh
-  /autom4te\\.cache
-  /CODE_OF_CONDUCT.md
-  /CONTRIBUTING.md
-  /Dockerfile
-  /docs/
-  /Doxyfile
-  /examples/
-  /HOWTO-RELEASE
-  /m4/lt*
-  /m4/libtool*
-  /media/
-  /schemas/
-  /scripts/
-  /test/fuzzers/
-  /test/gigs/.*gie\\.failing
-  /test/postinstall/
-  /travis/
-  ${PROJECT_BINARY_DIR}
-)
-
-include(CPack)
-
-# Simplify README.md to README
-add_custom_target(README
-  COMMAND ${CMAKE_COMMAND}
-    -D PROJ_SOURCE_DIR=${PROJ_SOURCE_DIR}
-    -P ${PROJ_SOURCE_DIR}/cmake/ProjReadme.cmake
-)
-
-get_property(_is_multi_config_generator GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
-if(NOT _is_multi_config_generator)
-  add_custom_target(dist
-    COMMAND ${CMAKE_MAKE_PROGRAM} package_source
-    DEPENDS README
+if(PROJECT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+  set(CPACK_SOURCE_GENERATOR "TGZ;ZIP")
+  set(CPACK_SOURCE_PACKAGE_FILE_NAME "proj-${PROJ_VERSION}")
+  set(CPACK_PACKAGE_VENDOR "OSGeo")
+  set(CPACK_PACKAGE_VERSION_MAJOR ${PROJ_VERSION_MAJOR})
+  set(CPACK_PACKAGE_VERSION_MINOR ${PROJ_VERSION_MINOR})
+  set(CPACK_PACKAGE_VERSION_PATCH ${PROJ_VERSION_PATCH})
+  set(CPACK_VERBATIM_VARIABLES TRUE)
+  set(CPACK_SOURCE_IGNORE_FILES
+    /\\..*  # any file/directory starting with .
+    /.*\\.yml
+    /.*\\.gz
+    /.*\\.zip
+    /.*build.*/
+    \\.deps
+    /autogen\\.sh
+    /autom4te\\.cache
+    /CODE_OF_CONDUCT.md
+    /CONTRIBUTING.md
+    /disabled_workflows/
+    /Dockerfile
+    /docs/
+    /Doxyfile
+    /HOWTO-RELEASE.md
+    /m4/lt*
+    /m4/libtool*
+    /media/
+    /schemas/
+    /test/fuzzers/
+    /test/gigs/.*gie\\.failing
+    /test/postinstall/
+    /travis/
+    ${PROJECT_BINARY_DIR}
   )
-  message(STATUS "PROJ: Configured 'dist' target")
+  include(CPack)
+
+  get_property(_is_multi_config_generator GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+  if(NOT _is_multi_config_generator)
+    add_custom_target(dist
+      COMMAND ${CMAKE_MAKE_PROGRAM} package_source
+    )
+    message(STATUS "PROJ: Configured 'dist' target")
+  endif()
+
+  configure_file(cmake/uninstall.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/proj_uninstall.cmake @ONLY)
+  add_custom_target(uninstall COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/proj_uninstall.cmake)
 endif()
+
+message(STATUS "EMBED_RESOURCE_FILES=${EMBED_RESOURCE_FILES}")

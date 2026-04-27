@@ -38,11 +38,13 @@ is not found in the PROJ search path. The list of grids is prioritized so that
 grids in the start of the list takes precedence over the grids in the back of the
 list.
 
-PROJ supports CTable2, NTv1 and NTv2 files for horizontal grid corrections. Details
+PROJ supports GeoTIFF (:ref:`geodetictiffgrids`), CTable2 and NTv2 files for horizontal grid corrections. Details
 about all three formats can be found in the GDAL documentation and/or driver source
 code. GDAL reads and writes all three formats. Using GDAL for construction of
 new grids is recommended.
 
+To apply as well ellipsoidal height differences sometimes present in some grids
+(such as US NADCON5 grids), use the :ref:`gridshift` method.
 
 Temporal gridshifting
 ################################################################################
@@ -61,7 +63,9 @@ the coordinate is part of the coordinate tuple.
 Suppose we want to model the deformation of the 2008 earthquake in Iceland in
 a transformation of data from 2005 to 2009::
 
-    echo 63.992 -21.014 10.0 2005.0 | cct +proj=hgridshift +grids=iceland2008.gsb +t_epoch=2008.4071 +t_final=2009.0
+    echo 63.992 -21.014 10.0 2005.0 | 
+        cct +proj=hgridshift +grids=iceland2008.gsb \
+        +t_epoch=2008.4071 +t_final=2009.0
     63.9920021 -21.0140013 10.0 2005.0
 
 .. note::
@@ -106,7 +110,8 @@ Required
     grid is considered optional and PROJ will the not complain if the grid is
     not available.
 
-    Grids are expected to be in CTable2, NTv1 or NTv2 format.
+    Grids are expected to be in GeoTIFF (:ref:`geodetictiffgrids`) or NTv2 format (or CTable2 for legacy
+    grids)
 
 Optional
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

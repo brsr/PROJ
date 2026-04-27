@@ -19,6 +19,7 @@ PROJ
    development/index
    specifications/index
    community/index
+   tutorials/index
    faq
    glossary
    zreferences
@@ -31,7 +32,5 @@ PROJ
     and find links to prepackaged executables in the
     :ref:`installation section<install>`.
 
-    In addition to this website the PROJ documentation is also available in `PDF`_
-    form.
-
-.. _`PDF`: https://raw.githubusercontent.com/OSGeo/proj.4/gh-pages/proj.pdf
+.. meta::
+   :google-site-verification: MhCjgTBKAzLd1y46INE_vmHIiJ_TLHrDc98XC_jYB14

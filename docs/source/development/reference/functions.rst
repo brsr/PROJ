@@ -52,7 +52,7 @@ paragraph for more details.
       syntax "EPSG:2393+5717"),
     - a OGC URN combining references for concatenated operations
       (e.g. "urn:ogc:def:coordinateOperation,coordinateOperation:EPSG::3895,coordinateOperation:EPSG::1618")
-    - a PROJJSON string. The jsonschema is at https://proj.org/schemas/v0.2/projjson.schema.json (*added in 6.2*)
+    - a PROJJSON string. The jsonschema is at https://proj.org/schemas/v0.4/projjson.schema.json (*added in 6.2*)
     - a compound CRS made from two object names separated with " + ". e.g. "WGS 84 + EGM96 height" (*added in 7.1*)
 
     Example call:
@@ -139,6 +139,14 @@ paragraph for more details.
         - more generally any string accepted by :c:func:`proj_create` representing
           a CRS
 
+    Starting with PROJ 9.2, source_crs (exclusively) or target_crs can be a CoordinateMetadata
+    with an associated coordinate epoch.
+
+    Starting with PROJ 9.4, both source_crs and target_crs can be a CoordinateMetadata
+    with an associated coordinate epoch, to perform changes of coordinate epochs.
+    Note however than this is in practice limited to use of velocity grids inside
+    the same dynamic CRS.
+
     An "area of use" can be specified in area. When it is supplied, the more
     accurate transformation between two given systems can be chosen.
 
@@ -164,9 +172,9 @@ paragraph for more details.
 
     :param ctx: Threading context.
     :type ctx: :c:type:`PJ_CONTEXT` *
-    :param `source_crs`: Source CRS.
+    :param `source_crs`: Source CRS or CoordinateMetadata.
     :type `source_crs`: `const char*`
-    :param `target_crs`: Destination SRS.
+    :param `target_crs`: Destination SRS or CoordinateMetadata
     :type `target_crs`: `const char*`
     :param `area`: Descriptor of the desired area for the transformation.
     :type `area`: :c:type:`PJ_AREA` *
@@ -182,16 +190,24 @@ paragraph for more details.
     This is the same as :c:func:`proj_create_crs_to_crs` except that the source and
     target CRS are passed as PJ* objects which must be of the CRS variety.
 
+    Starting with PROJ 9.2, source_crs (exclusively) or target_crs can be a CoordinateMetadata
+    with an associated coordinate epoch.
+
+    Starting with PROJ 9.4, both source_crs and target_crs can be a CoordinateMetadata
+    with an associated coordinate epoch, to perform changes of coordinate epochs.
+    Note however than this is in practice limited to use of velocity grids inside
+    the same dynamic CRS.
+
     :param `options`: a list of NUL terminated options, or NULL.
 
     The list of supported options is:
 
     - AUTHORITY=name: to restrict the authority of coordinate operations
       looked up in the database. When not specified, coordinate
-      ``operations from any authority`` will be searched, with the restrictions set
+      operations from any authority will be searched, with the restrictions set
       in the authority_to_authority_preference database table related to the authority
       of the source/target CRS themselves.
-      If authority is set to "any", then coordinate operations from any authority will be searched
+      If authority is set to ``any``, then coordinate operations from any authority will be searched.
       If authority is a non-empty string different of ``any``, then coordinate operations
       will be searched only in that authority namespace (e.g ``EPSG``).
 
@@ -200,6 +216,21 @@ paragraph for more details.
 
     - ALLOW_BALLPARK=YES/NO: can be set to NO to disallow the use of
       :term:`Ballpark transformation` in the candidate coordinate operations.
+
+    - ONLY_BEST=YES/NO: (PROJ >= 9.2)
+      Can be set to YES to cause PROJ to error out if the best
+      transformation, known of PROJ, and usable by PROJ if all grids known and
+      usable by PROJ were accessible, cannot be used. Best transformation should
+      be understood as the transformation returned by
+      :cpp:func:`proj_get_suggested_operation` if all known grids were
+      accessible (either locally or through network).
+      Note that the default value for this option can be also set with the
+      :envvar:`PROJ_ONLY_BEST_DEFAULT` environment variable, or with the
+      ``only_best_default`` setting of :ref:`proj-ini` (the ONLY_BEST option
+      when specified overrides such default value).
+
+    - FORCE_OVER=YES/NO: can be set to YES to force the ``+over`` flag on the transformation
+      returned by this function. See :ref:`longitude_wrapping`
 
 .. doxygenfunction:: proj_normalize_for_visualization
    :project: doxygen_api
@@ -261,6 +292,13 @@ Coordinate transformation
 
     Transform a single :c:type:`PJ_COORD` coordinate.
 
+    If the input coordinate contains any NaNs you are guaranteed to get a
+    coordinate with all NaNs as a result.
+
+    .. versionchanged:: 9.2.0
+
+        Define NaN handling. Prior NaN handling behavior was undefined.
+
     :param P: Transformation object
     :type P: :c:type:`PJ` *
     :param `direction`: Transformation direction.
@@ -268,6 +306,21 @@ Coordinate transformation
     :param coord: Coordinate that will be transformed.
     :type coord: :c:type:`PJ_COORD`
     :returns: :c:type:`PJ_COORD`
+
+
+
+.. c:function:: PJ* proj_trans_get_last_used_operation(PJ *P)
+
+    .. versionadded:: 9.1.0
+
+    Return the operation used during the last invocation of proj_trans().
+    This is especially useful when P has been created with proj_create_crs_to_crs()
+    and has several alternative operations.
+    The returned object must be freed with proj_destroy().
+
+    :param P: Transformation object
+    :type P: :c:type:`PJ` *
+    :returns:  :c:type:`PJ` *
 
 
 .. c:function:: size_t proj_trans_generic(PJ *P, PJ_DIRECTION direction, \
@@ -389,6 +442,14 @@ Coordinate transformation
               This error number will be a precise error number if all coordinates that fail to transform
               for the same reason, or a generic error code if they fail for different
               reasons.
+
+
+
+.. doxygenfunction:: proj_trans_bounds
+   :project: doxygen_api
+
+.. doxygenfunction:: proj_trans_bounds_3D
+   :project: doxygen_api
 
 
 Error reporting
@@ -609,7 +670,8 @@ Lists
 
 .. c:function:: const PJ_PRIME_MERIDIANS* proj_list_prime_meridians(void)
 
-    Get a pointer to an array of prime meridians defined in PROJ. The last
+    Get a pointer to an array of hard-coded prime meridians defined in PROJ.
+    Note that this list is no longer updated. The last
     entry of the returned array is a NULL-entry. The array is statically
     allocated and does not need to be freed after use.
 
@@ -689,7 +751,29 @@ Distances
               and the third value is the reverse azimuth. The fourth coordinate
               value is unused.
 
+.. c:function:: PJ_COORD proj_geod_direct(const PJ *P, PJ_COORD a, double azimuth, double distance)
 
+    .. versionadded:: 9.7.0
+
+    Solves the direct geodesic problem for given projection ellipsoid
+
+    The coordinates in :c:data:`a` needs to be given as longitude and latitude in 
+    radians. Note that the axis order of the :c:data:`P` object is not taken into 
+    account in this function, so even though a CRS object comes with axis ordering
+    latitude/longitude coordinates used in this function should be reordered as 
+    longitude/latitude. The azimuth  :c:data:`azimuth` should be provided in radians,
+    and :c:data:`distance` should be provided in meters
+
+    :param P: Transformation or CRS object
+    :type P: const :c:type:`PJ` *
+    :param PJ_COORD a: Coordinate of first point
+    :param double azimuth: Initial azimuth from first point to second point in radians,
+                           measured clockwise from true north
+    :param double distance: Geodesic distance from the first point to the second point
+                            in meters
+    :returns: `PJ_COORD` where the first value is the longitude in radians, second
+               value is latitude in radians and third value is forward azimuth at 
+               second point in radians. The fourth coordinate value is unused.
 
 Various
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -739,6 +823,13 @@ Various
     distance of the starting point :c:data:`coo` and the resulting
     coordinate after :c:data:`n` iterations back and forth.
 
+    If the input coordinate has any NaNs and the expected output of all NaNs
+    is returned then the final distance will be 0.
+
+    .. versionchanged:: 9.2.0
+
+        Define expected NaN distance of 0.
+
     :param P: Transformation object
     :type P: :c:type:`PJ` *
     :param `direction`: Starting direction of transformation
@@ -755,6 +846,19 @@ Various
     Calculate various cartographic properties, such as scale factors, angular
     distortion and meridian convergence. Depending on the underlying projection
     values will be calculated either numerically (default) or analytically.
+
+    Starting with PROJ 8.2, the P object can be a projected CRS, for example
+    instantiated from a EPSG CRS code. The factors computed will be those of the
+    map projection implied by the transformation from the base geographic CRS of
+    the projected CRS to the projected CRS.
+    Starting with PROJ 9.6, to improve performance on repeated calls on a
+    projected CRS object, the above steps will modify the internal state of the
+    provided P object, and thus calling this function concurrently from multiple
+    threads on the same P object will no longer be supported.
+
+    The input geodetic coordinate lp should be such that lp.lam is the longitude
+    in radian, and lp.phi the latitude in radian (thus independently of the
+    definition of the base CRS, if P is a projected CRS).
 
     The function also calculates the partial derivatives of the given
     coordinate.
@@ -796,8 +900,30 @@ Various
 
     Convert radians to string representation of degrees, minutes and seconds.
 
+    .. deprecated:: 9.2
+       Use :cpp:func:`proj_rtodms2` instead.
+
     :param s: Buffer that holds the output string
     :type s: `char *`
+    :param r: Value to convert to dms-representation
+    :type r: `double`
+    :param pos: Character denoting positive direction, typically `'N'` or `'E'`.
+    :type pos: `int`
+    :param neg: Character denoting negative direction, typically `'S'` or `'W'`.
+    :type neg: `int`
+    :returns: `char*` Pointer to output buffer (same as :c:data:`s`)
+
+
+.. c:function:: char *proj_rtodms2(char *s, size_t sizeof_s, double r, int pos, int neg)
+
+    .. versionadded:: 9.2.0
+
+    Convert radians to string representation of degrees, minutes and seconds.
+
+    :param s: Buffer that holds the output string
+    :type s: `char *`
+    :param sizeof_s: Size of s buffer
+    :type sizeof_s: `size_t`
     :param r: Value to convert to dms-representation
     :type r: `double`
     :param pos: Character denoting positive direction, typically `'N'` or `'E'`.
@@ -861,6 +987,15 @@ Setting custom I/O functions
    :project: doxygen_api
 
 .. doxygenfunction:: proj_context_set_sqlite3_vfs_name
+   :project: doxygen_api
+
+.. doxygenfunction:: proj_context_set_file_finder
+   :project: doxygen_api
+
+.. doxygenfunction:: proj_context_set_search_paths
+   :project: doxygen_api
+
+.. doxygenfunction:: proj_context_set_ca_bundle_path
    :project: doxygen_api
 
 
@@ -938,7 +1073,18 @@ Conversely, objects returned by :c:func:`proj_create` and :c:func:`proj_create_a
 which are not of type CRS (can be tested with :c:func:`proj_is_crs`),
 will return an error when used with functions of this section.
 
+Base functions
+~~~~~~~~~~~~~~
+
 .. doxygengroup:: iso19111_functions
    :project: doxygen_api
    :content-only:
 
+Advanced functions
+~~~~~~~~~~~~~~~~~~
+
+Available in :file:`proj.h` since PROJ 9.4. Previously were available in :file:`proj_experimental.h`.
+
+.. doxygengroup:: iso19111_advanced_functions
+   :project: doxygen_api
+   :content-only:

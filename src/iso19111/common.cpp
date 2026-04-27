@@ -91,13 +91,13 @@ UnitOfMeasure::UnitOfMeasure(const std::string &nameIn, double toSIIn,
                              UnitOfMeasure::Type typeIn,
                              const std::string &codeSpaceIn,
                              const std::string &codeIn)
-    : d(internal::make_unique<Private>(nameIn, toSIIn, typeIn, codeSpaceIn,
-                                       codeIn)) {}
+    : d(std::make_unique<Private>(nameIn, toSIIn, typeIn, codeSpaceIn,
+                                  codeIn)) {}
 
 // ---------------------------------------------------------------------------
 
 UnitOfMeasure::UnitOfMeasure(const UnitOfMeasure &other)
-    : d(internal::make_unique<Private>(*(other.d))) {}
+    : d(std::make_unique<Private>(*(other.d))) {}
 
 // ---------------------------------------------------------------------------
 
@@ -119,11 +119,7 @@ UnitOfMeasure &UnitOfMeasure::operator=(const UnitOfMeasure &other) {
 // ---------------------------------------------------------------------------
 
 //! @cond Doxygen_Suppress
-UnitOfMeasure &UnitOfMeasure::operator=(UnitOfMeasure &&other) {
-    BaseObject::operator=(std::move(static_cast<BaseObject &&>(other)));
-    *d = std::move(*(other.d));
-    return *this;
-}
+UnitOfMeasure &UnitOfMeasure::operator=(UnitOfMeasure &&) = default;
 //! @endcond
 
 // ---------------------------------------------------------------------------
@@ -186,10 +182,10 @@ void UnitOfMeasure::_exportToWKT(
     const bool isWKT2 = formatter->version() == WKTFormatter::Version::WKT2;
 
     const auto l_type = type();
-    if (formatter->forceUNITKeyword() && l_type != Type::PARAMETRIC) {
-        formatter->startNode(WKTConstants::UNIT, !codeSpace().empty());
-    } else if (!unitType.empty()) {
+    if (!unitType.empty()) {
         formatter->startNode(unitType, !codeSpace().empty());
+    } else if (formatter->forceUNITKeyword() && l_type != Type::PARAMETRIC) {
+        formatter->startNode(WKTConstants::UNIT, !codeSpace().empty());
     } else {
         if (isWKT2 && l_type == Type::LINEAR) {
             formatter->startNode(WKTConstants::LENGTHUNIT,
@@ -375,12 +371,12 @@ struct Measure::Private {
 /** \brief Instantiate a Measure.
  */
 Measure::Measure(double valueIn, const UnitOfMeasure &unitIn)
-    : d(internal::make_unique<Private>(valueIn, unitIn)) {}
+    : d(std::make_unique<Private>(valueIn, unitIn)) {}
 
 // ---------------------------------------------------------------------------
 
 Measure::Measure(const Measure &other)
-    : d(internal::make_unique<Private>(*(other.d))) {}
+    : d(std::make_unique<Private>(*(other.d))) {}
 
 // ---------------------------------------------------------------------------
 
@@ -442,8 +438,14 @@ bool Measure::_isEquivalentTo(const Measure &other,
     if (criterion == util::IComparable::Criterion::STRICT) {
         return operator==(other);
     }
-    return std::fabs(getSIValue() - other.getSIValue()) <=
-           maxRelativeError * std::fabs(getSIValue());
+    const double SIValue = getSIValue();
+    const double otherSIValue = other.getSIValue();
+    // It is arguable that we have to deal with infinite values, but this
+    // helps robustify some situations.
+    if (std::isinf(SIValue) && std::isinf(otherSIValue))
+        return SIValue * otherSIValue > 0;
+    return std::fabs(SIValue - otherSIValue) <=
+           maxRelativeError * std::fabs(SIValue);
 }
 
 // ---------------------------------------------------------------------------
@@ -548,18 +550,18 @@ struct DateTime::Private {
 
 // ---------------------------------------------------------------------------
 
-DateTime::DateTime() : d(internal::make_unique<Private>(std::string())) {}
+DateTime::DateTime() : d(std::make_unique<Private>(std::string())) {}
 
 // ---------------------------------------------------------------------------
 
 DateTime::DateTime(const std::string &str)
-    : d(internal::make_unique<Private>(str)) {}
+    : d(std::make_unique<Private>(str)) {}
 
 // ---------------------------------------------------------------------------
 
 //! @cond Doxygen_Suppress
 DateTime::DateTime(const DateTime &other)
-    : d(internal::make_unique<Private>(*(other.d))) {}
+    : d(std::make_unique<Private>(*(other.d))) {}
 //! @endcond
 
 // ---------------------------------------------------------------------------
@@ -619,12 +621,12 @@ struct IdentifiedObject::Private {
 
 // ---------------------------------------------------------------------------
 
-IdentifiedObject::IdentifiedObject() : d(internal::make_unique<Private>()) {}
+IdentifiedObject::IdentifiedObject() : d(std::make_unique<Private>()) {}
 
 // ---------------------------------------------------------------------------
 
 IdentifiedObject::IdentifiedObject(const IdentifiedObject &other)
-    : d(internal::make_unique<Private>(*(other.d))) {}
+    : d(std::make_unique<Private>(*(other.d))) {}
 
 // ---------------------------------------------------------------------------
 
@@ -754,6 +756,7 @@ void IdentifiedObject::Private::setIdentifiers(
 
         pVal = properties.get(Identifier::CODE_KEY);
         if (pVal) {
+            identifiers.clear();
             identifiers.push_back(
                 Identifier::create(std::string(), properties));
         }
@@ -967,13 +970,13 @@ struct ObjectDomain::Private {
 //! @cond Doxygen_Suppress
 ObjectDomain::ObjectDomain(const optional<std::string> &scopeIn,
                            const ExtentPtr &extent)
-    : d(internal::make_unique<Private>(scopeIn, extent)) {}
+    : d(std::make_unique<Private>(scopeIn, extent)) {}
 //! @endcond
 
 // ---------------------------------------------------------------------------
 
 ObjectDomain::ObjectDomain(const ObjectDomain &other)
-    : d(internal::make_unique<Private>(*(other.d))) {}
+    : d(std::make_unique<Private>(*(other.d))) {}
 
 // ---------------------------------------------------------------------------
 
@@ -1099,10 +1102,29 @@ void ObjectDomain::_exportToJSON(JSONFormatter *formatter) const {
             }
         }
         if (d->domainOfValidity_->verticalElements().size() == 1) {
-            // TODO
+            const auto &verticalExtent =
+                d->domainOfValidity_->verticalElements().front();
+            writer->AddObjKey("vertical_extent");
+            auto bboxContext(writer->MakeObjectContext());
+            writer->AddObjKey("minimum");
+            writer->Add(verticalExtent->minimumValue(), 15);
+            writer->AddObjKey("maximum");
+            writer->Add(verticalExtent->maximumValue(), 15);
+            const auto &unit = verticalExtent->unit();
+            if (*unit != common::UnitOfMeasure::METRE) {
+                writer->AddObjKey("unit");
+                unit->_exportToJSON(formatter);
+            }
         }
         if (d->domainOfValidity_->temporalElements().size() == 1) {
-            // TODO
+            const auto &temporalExtent =
+                d->domainOfValidity_->temporalElements().front();
+            writer->AddObjKey("temporal_extent");
+            auto bboxContext(writer->MakeObjectContext());
+            writer->AddObjKey("start");
+            writer->Add(temporalExtent->start());
+            writer->AddObjKey("end");
+            writer->Add(temporalExtent->stop());
         }
     }
 }
@@ -1140,12 +1162,12 @@ struct ObjectUsage::Private {
 
 // ---------------------------------------------------------------------------
 
-ObjectUsage::ObjectUsage() : d(internal::make_unique<Private>()) {}
+ObjectUsage::ObjectUsage() : d(std::make_unique<Private>()) {}
 
 // ---------------------------------------------------------------------------
 
 ObjectUsage::ObjectUsage(const ObjectUsage &other)
-    : IdentifiedObject(other), d(internal::make_unique<Private>(*(other.d))) {}
+    : IdentifiedObject(other), d(std::make_unique<Private>(*(other.d))) {}
 
 // ---------------------------------------------------------------------------
 
@@ -1235,7 +1257,7 @@ void ObjectUsage::baseExportToWKT(WKTFormatter *formatter) const {
     if (formatter->outputId()) {
         formatID(formatter);
     }
-    if (isWKT2) {
+    if (isWKT2 && formatter->outputUsage()) {
         formatRemarks(formatter);
     }
 }
@@ -1293,17 +1315,17 @@ struct DataEpoch::Private {
 
 // ---------------------------------------------------------------------------
 
-DataEpoch::DataEpoch() : d(internal::make_unique<Private>(Measure())) {}
+DataEpoch::DataEpoch() : d(std::make_unique<Private>(Measure())) {}
 
 // ---------------------------------------------------------------------------
 
 DataEpoch::DataEpoch(const Measure &coordinateEpochIn)
-    : d(internal::make_unique<Private>(coordinateEpochIn)) {}
+    : d(std::make_unique<Private>(coordinateEpochIn)) {}
 
 // ---------------------------------------------------------------------------
 
 DataEpoch::DataEpoch(const DataEpoch &other)
-    : d(internal::make_unique<Private>(*(other.d))) {}
+    : d(std::make_unique<Private>(*(other.d))) {}
 
 // ---------------------------------------------------------------------------
 

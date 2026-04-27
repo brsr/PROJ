@@ -1,30 +1,8 @@
 message(STATUS "Configuring proj library:")
 
-##############################################
-### SWITCH BETWEEN STATIC OR SHARED LIBRARY###
-##############################################
-
-# default config is shared, except static on Windows
-set(BUILD_SHARED_LIBS_DEFAULT ON)
-if(WIN32)
-  set(BUILD_SHARED_LIBS_DEFAULT OFF)
-endif()
-option(BUILD_SHARED_LIBS
-  "Build PROJ library shared." ${BUILD_SHARED_LIBS_DEFAULT})
-
-option(USE_THREAD "Build libproj with thread/mutex support " ON)
-if(NOT USE_THREAD)
-  add_definitions(-DMUTEX_stub)
-endif()
 find_package(Threads QUIET)
-if(USE_THREAD AND Threads_FOUND AND CMAKE_USE_WIN32_THREADS_INIT)
-  add_definitions(-DMUTEX_win32)
-elseif(USE_THREAD AND Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
-  add_definitions(-DMUTEX_pthread)
-elseif(USE_THREAD AND NOT Threads_FOUND)
-  message(FATAL_ERROR
-    "No thread library found and thread/mutex support is "
-    "required by USE_THREAD option")
+if(Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
+  add_definitions(-DPROJ_HAS_PTHREADS)
 endif()
 
 option(ENABLE_IPO
@@ -42,6 +20,7 @@ print_variable(ENABLE_IPO)
 ##############################################
 
 set(SRC_LIBPROJ_PROJECTIONS
+  projections/airocean.cpp
   projections/aeqd.cpp
   projections/adams.cpp
   projections/gnom.cpp
@@ -71,8 +50,7 @@ set(SRC_LIBPROJ_PROJECTIONS
   projections/eqc.cpp
   projections/gall.cpp
   projections/labrd.cpp
-  projections/lsat.cpp
-  projections/misrsom.cpp
+  projections/som.cpp
   projections/merc.cpp
   projections/mill.cpp
   projections/ocea.cpp
@@ -122,6 +100,8 @@ set(SRC_LIBPROJ_PROJECTIONS
   projections/goode.cpp
   projections/igh.cpp
   projections/igh_o.cpp
+  projections/imoll.cpp
+  projections/imoll_o.cpp
   projections/hatano.cpp
   projections/loxim.cpp
   projections/mbt_fps.cpp
@@ -138,6 +118,7 @@ set(SRC_LIBPROJ_PROJECTIONS
   projections/putp6.cpp
   projections/qsc.cpp
   projections/robin.cpp
+  projections/s2.cpp
   projections/sch.cpp
   projections/sts.cpp
   projections/urm5.cpp
@@ -152,6 +133,7 @@ set(SRC_LIBPROJ_PROJECTIONS
   projections/calcofi.cpp
   projections/eqearth.cpp
   projections/col_urban.cpp
+  projections/spilhaus.cpp
 )
 
 set(SRC_LIBPROJ_CONVERSIONS
@@ -168,6 +150,7 @@ set(SRC_LIBPROJ_CONVERSIONS
 set(SRC_LIBPROJ_TRANSFORMATIONS
   transformations/affine.cpp
   transformations/deformation.cpp
+  transformations/gridshift.cpp
   transformations/helmert.cpp
   transformations/hgridshift.cpp
   transformations/horner.cpp
@@ -176,6 +159,7 @@ set(SRC_LIBPROJ_TRANSFORMATIONS
   transformations/xyzgridshift.cpp
   transformations/defmodel.cpp
   transformations/tinshift.cpp
+  transformations/vertoffset.cpp
 )
 
 set(SRC_LIBPROJ_ISO19111
@@ -183,6 +167,7 @@ set(SRC_LIBPROJ_ISO19111
   iso19111/util.cpp
   iso19111/metadata.cpp
   iso19111/common.cpp
+  iso19111/coordinates.cpp
   iso19111/crs.cpp
   iso19111/datum.cpp
   iso19111/coordinatesystem.cpp
@@ -195,6 +180,7 @@ set(SRC_LIBPROJ_ISO19111
   iso19111/operation/conversion.cpp
   iso19111/operation/esriparammappings.cpp
   iso19111/operation/oputils.cpp
+  iso19111/operation/parametervalue.cpp
   iso19111/operation/parammappings.cpp
   iso19111/operation/projbasedoperation.cpp
   iso19111/operation/singleoperation.cpp
@@ -203,44 +189,61 @@ set(SRC_LIBPROJ_ISO19111
 )
 
 set(SRC_LIBPROJ_CORE
-  4D_api.cpp
   aasincos.cpp
   adjlon.cpp
-  auth.cpp
+  area.cpp
+  coord_operation.cpp
+  coordinates.cpp
+  create.cpp
+  crs_to_crs.cpp
   ctx.cpp
   datum_set.cpp
   datums.cpp
   deriv.cpp
+  dist.cpp
   dmstor.cpp
   ell_set.cpp
   ellps.cpp
   factors.cpp
+  filemanager.hpp
+  filemanager.cpp
   fwd.cpp
   gauss.cpp
   generic_inverse.cpp
   geodesic.c
+  grids.hpp
+  grids.cpp
+  info.cpp
   init.cpp
   initcache.cpp
   internal.cpp
   inv.cpp
+  latitudes.cpp
   list.cpp
   log.cpp
   malloc.cpp
   mlfn.cpp
   msfn.cpp
   mutex.cpp
+  networkfilemanager.cpp
   param.cpp
   phi2.cpp
   pipeline.cpp
   pj_list.h
   pr_list.cpp
   proj_internal.h
+  proj_json_streaming_writer.hpp
+  proj_json_streaming_writer.cpp
   proj_mdist.cpp
-  qsfn.cpp
   release.cpp
   rtodms.cpp
   strerrno.cpp
   strtod.cpp
+  sqlite3_utils.hpp
+  sqlite3_utils.cpp
+  tracing.cpp
+  trans.cpp
+  trans_bounds.cpp
   tsfn.cpp
   units.cpp
   wkt1_generated_parser.c
@@ -254,23 +257,31 @@ set(SRC_LIBPROJ_CORE
   wkt_parser.cpp
   wkt_parser.hpp
   zpoly1.cpp
-  proj_json_streaming_writer.hpp
-  proj_json_streaming_writer.cpp
-  tracing.cpp
-  grids.hpp
-  grids.cpp
-  filemanager.hpp
-  filemanager.cpp
-  networkfilemanager.cpp
-  sqlite3_utils.hpp
-  sqlite3_utils.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/proj_config.h
 )
+
+# Skip Unity build for specific files
+set(SKIP_UNITY_BUILD_FILES
+  list.cpp # because if sets DO_NOT_DEFINE_PROJ_HEAD
+  transformations/defmodel.cpp # Evaluator class conflict
+  transformations/tinshift.cpp # Evaluator class conflict
+  wkt1_parser.cpp
+  wkt2_parser.cpp
+  wkt1_generated_parser.c
+  wkt2_generated_parser.c
+)
+if(WIN32)
+  list(APPEND SKIP_UNITY_BUILD_FILES
+    networkfilemanager.cpp
+  )
+endif()
+set_property(SOURCE ${SKIP_UNITY_BUILD_FILES} PROPERTY SKIP_UNITY_BUILD_INCLUSION ON)
 
 set(HEADERS_LIBPROJ
   proj.h
   proj_experimental.h
   proj_constants.h
+  proj_symbol_rename.h
   geodesic.h
 )
 
@@ -293,8 +304,64 @@ include_directories(${PROJ_SOURCE_DIR}/include)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 source_group("CMake Files" FILES CMakeLists.txt)
 
-# Embed PROJ_LIB data files location
-add_definitions(-DPROJ_LIB="${CMAKE_INSTALL_PREFIX}/${DATADIR}")
+# Embed PROJ_DATA data files location
+if(EMBED_PROJ_DATA_PATH)
+  add_definitions(-DPROJ_DATA="${PROJ_DATA_PATH}")
+endif()
+
+
+###########################################################
+# targets to refresh wkt1_parser.cpp and wkt2_parser.cpp
+###########################################################
+
+# Those targets need to be run manually each time wkt1_grammar.y / wkt2_grammar.y
+# is modified.
+# We could of course run them automatically, but that would make building
+# PROJ harder.
+
+# This target checks that wkt1_grammar.y md5sum has not changed
+# If it has, then it should be updated and the generate_wkt1_parser target
+# should be manually run
+add_custom_target(check_wkt1_grammar_md5 ALL
+                  COMMAND ${CMAKE_COMMAND}
+                      "-DIN_FILE=wkt1_grammar.y"
+                      "-DTARGET=generate_wkt1_parser"
+                      "-DEXPECTED_MD5SUM=5b4495c1ec6d2ae26b7028a9bb5d8819"
+                      -P "${CMAKE_CURRENT_SOURCE_DIR}/check_md5sum.cmake"
+                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/wkt1_grammar.y"
+                  VERBATIM)
+
+add_custom_target(generate_wkt1_parser
+                  COMMAND ${CMAKE_COMMAND}
+                      "-DPREFIX=pj_wkt1_"
+                      "-DIN_FILE=wkt1_grammar.y"
+                      "-DOUT_FILE=wkt1_generated_parser.c"
+                      -P "${CMAKE_CURRENT_SOURCE_DIR}/generate_wkt_parser.cmake"
+                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                  VERBATIM)
+
+# This target checks that wkt2_grammar.y md5sum has not changed
+# If it has, then it should be updated and the generate_wkt2_parser target
+# should be manually run
+add_custom_target(check_wkt2_grammar_md5 ALL
+                  COMMAND ${CMAKE_COMMAND}
+                      "-DIN_FILE=wkt2_grammar.y"
+                      "-DTARGET=generate_wkt2_parser"
+                      "-DEXPECTED_MD5SUM=0a58cbfb6abd2b23bbb9345e12773348"
+                      -P "${CMAKE_CURRENT_SOURCE_DIR}/check_md5sum.cmake"
+                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/wkt2_grammar.y"
+                  VERBATIM)
+
+add_custom_target(generate_wkt2_parser
+                  COMMAND ${CMAKE_COMMAND}
+                      "-DPREFIX=pj_wkt2_"
+                      "-DIN_FILE=wkt2_grammar.y"
+                      "-DOUT_FILE=wkt2_generated_parser.c"
+                      -P "${CMAKE_CURRENT_SOURCE_DIR}/generate_wkt_parser.cmake"
+                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                  VERBATIM)
 
 #################################################
 ## targets: libproj and proj_config.h
@@ -305,21 +372,21 @@ set(ALL_LIBPROJ_SOURCES
   ${SRC_LIBPROJ_PROJECTIONS}
   ${SRC_LIBPROJ_TRANSFORMATIONS}
   ${SRC_LIBPROJ_ISO19111}
+  ${SRC_PROJAPPS_LIBS}
 )
-set(ALL_LIBPROJ_HEADERS ${HEADERS_LIBPROJ})
+set(ALL_LIBPROJ_HEADERS 
+  ${HEADERS_LIBPROJ}
+  ${HEADERS_PROJAPPS_LIBS}
+)
 
 # Configuration for the core target "proj"
-proj_target_output_name(proj PROJ_CORE_TARGET_OUTPUT_NAME)
 
 add_library(proj
   ${ALL_LIBPROJ_SOURCES}
   ${ALL_LIBPROJ_HEADERS}
   ${PROJ_RESOURCES}
 )
-target_compile_options(proj
-  PRIVATE $<$<COMPILE_LANGUAGE:C>:${PROJ_C_WARN_FLAGS}>
-  PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${PROJ_CXX_WARN_FLAGS}>
-)
+add_library(PROJ::proj ALIAS proj)
 
 if(MSVC OR MINGW)
     target_compile_definitions(proj PRIVATE -DNOMINMAX)
@@ -340,32 +407,158 @@ if("${CMAKE_C_COMPILER_ID}" STREQUAL "Intel")
     PROPERTIES COMPILE_FLAGS ${FP_PRECISE})
 endif()
 
+if (EMBED_RESOURCE_FILES)
+  add_library(proj_resources OBJECT embedded_resources.c)
+  add_dependencies(proj_resources generate_proj_db)
+  option(PROJ_OBJECT_LIBRARIES_POSITION_INDEPENDENT_CODE "Set ON to produce -fPIC code" ${BUILD_SHARED_LIBS})
+  set_property(TARGET proj_resources PROPERTY POSITION_INDEPENDENT_CODE ${PROJ_OBJECT_LIBRARIES_POSITION_INDEPENDENT_CODE})
+  target_sources(proj PRIVATE $<TARGET_OBJECTS:proj_resources>)
+
+  if (NOT IS_SHARP_EMBED_AVAILABLE_RES)
+    set(EMBEDDED_PROJ_DB "file_embed/proj_db.c")
+    add_custom_command(
+        OUTPUT "${EMBEDDED_PROJ_DB}"
+        COMMAND ${CMAKE_COMMAND}
+        -DRUN_FILE_EMBED_GENERATE=1
+        "-DFILE_EMBED_GENERATE_PATH=${PROJECT_BINARY_DIR}/data/proj.db"
+        -P ${PROJECT_SOURCE_DIR}/cmake/FileEmbed.cmake
+        DEPENDS generate_proj_db "${PROJECT_BINARY_DIR}/data/proj.db"
+    )
+    target_sources(proj_resources PRIVATE "${EMBEDDED_PROJ_DB}")
+  else()
+    target_include_directories(proj_resources PRIVATE "${PROJECT_BINARY_DIR}/data")
+    set_source_files_properties(embedded_resources.c OBJECT_DEPENDS ${PROJECT_BINARY_DIR}/data/proj.db)
+    target_compile_definitions(proj_resources PRIVATE "PROJ_DB=\"${PROJECT_BINARY_DIR}/data/proj.db\"")
+    target_compile_definitions(proj_resources PRIVATE USE_SHARP_EMBED)
+    set_target_properties(proj_resources PROPERTIES C_STANDARD 23)
+  endif()
+endif()
+
+set(EMBED_RESOURCE_DIRECTORY "" CACHE PATH "Directory that contains .tif, .json or .pol files to embed into libproj")
+set(FILES_TO_EMBED)
+if (EMBED_RESOURCE_DIRECTORY)
+    if (NOT EMBED_RESOURCE_FILES)
+        message(FATAL_ERROR "EMBED_RESOURCE_FILES should be set to ON when EMBED_RESOURCE_DIRECTORY is set")
+    endif()
+
+    if (NOT IS_DIRECTORY ${EMBED_RESOURCE_DIRECTORY})
+        message(FATAL_ERROR "${EMBED_RESOURCE_DIRECTORY} is not a valid directory")
+    endif()
+
+    file(GLOB FILES_TO_EMBED "${EMBED_RESOURCE_DIRECTORY}/*.tif" "${EMBED_RESOURCE_DIRECTORY}/*.json"  "${EMBED_RESOURCE_DIRECTORY}/*.pol")
+    if (NOT FILES_TO_EMBED)
+        message(FATAL_ERROR "No .tif, .json or .pol files found in ${EMBED_RESOURCE_DIRECTORY}")
+    endif()
+endif()
+
+if (EMBED_RESOURCE_FILES)
+    list(APPEND FILES_TO_EMBED "../data/proj.ini")
+    foreach(FILE ${PROJ_DICTIONARY})
+        list(APPEND FILES_TO_EMBED "../data/${FILE}")
+    endforeach()
+endif()
+
+if (FILES_TO_EMBED)
+    set(EMBEDDED_RESOURCES_C_PROLOG_CONTENT "")
+    set(EMBEDDED_RESOURCES_C_CONTENT "")
+    string(APPEND EMBEDDED_RESOURCES_C_CONTENT
+        "const unsigned char *pj_get_embedded_resource(const char* filename, unsigned int *pnSize)\n"
+        "{\n")
+    foreach(FILE ${FILES_TO_EMBED})
+        get_filename_component(FILENAME ${FILE} NAME)
+        message(STATUS "Embedding ${FILENAME}")
+        set(C_IDENTIFIER_RESOURCE_NAME "${FILENAME}")
+        string(REPLACE "." "_" C_IDENTIFIER_RESOURCE_NAME "${C_IDENTIFIER_RESOURCE_NAME}")
+        string(REPLACE "-" "_" C_IDENTIFIER_RESOURCE_NAME "${C_IDENTIFIER_RESOURCE_NAME}")
+        set(C_FILENAME "file_embed/${C_IDENTIFIER_RESOURCE_NAME}.c")
+        add_custom_command(
+            OUTPUT "${C_FILENAME}"
+            COMMAND ${CMAKE_COMMAND}
+            -DRUN_FILE_EMBED_GENERATE=1
+            "-DFILE_EMBED_GENERATE_PATH=${FILE}"
+            -P ${PROJECT_SOURCE_DIR}/cmake/FileEmbed.cmake
+            DEPENDS "${FILE}"
+        )
+
+        string(APPEND EMBEDDED_RESOURCES_C_CONTENT
+               "    if (strcmp(filename, \"${FILENAME}\") == 0)\n"
+               "    {\n"
+               "        *pnSize = ${C_IDENTIFIER_RESOURCE_NAME}_size;\n"
+               "        return ${C_IDENTIFIER_RESOURCE_NAME}_data;\n"
+               "    }\n")
+
+        target_sources(proj_resources PRIVATE "${C_FILENAME}")
+
+        string(APPEND EMBEDDED_RESOURCES_C_PROLOG_CONTENT "extern const uint8_t ${C_IDENTIFIER_RESOURCE_NAME}_data[];\n")
+        string(APPEND EMBEDDED_RESOURCES_C_PROLOG_CONTENT "extern const unsigned ${C_IDENTIFIER_RESOURCE_NAME}_size;\n")
+    endforeach()
+    string(APPEND EMBEDDED_RESOURCES_C_CONTENT
+           "    *pnSize = 0;\n"
+           "    return NULL;\n"
+           "}\n")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/file_embed/embedded_resources.c" "${EMBEDDED_RESOURCES_C_PROLOG_CONTENT}\n${EMBEDDED_RESOURCES_C_CONTENT}")
+endif()
+
+if (EMBED_RESOURCE_FILES)
+    target_sources(proj PRIVATE memvfs.c)
+    target_compile_definitions(proj PRIVATE EMBED_RESOURCE_FILES)
+endif()
+if (USE_ONLY_EMBEDDED_RESOURCE_FILES)
+    target_compile_definitions(proj PRIVATE USE_ONLY_EMBEDDED_RESOURCE_FILES)
+endif()
+
 if(ENABLE_IPO)
   set_property(TARGET proj
     PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 endif()
 
 target_include_directories(proj INTERFACE
-  $<INSTALL_INTERFACE:${INCLUDEDIR}>)
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${PROJ_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+
+if(WIN32)
+    if (MINGW AND BUILD_SHARED_LIBS)
+        option(APPEND_SOVERSION "Whether to include shared object version as a suffix in the name of the PROJ shared library name." OFF)
+    endif()
+    if(MINGW AND BUILD_SHARED_LIBS AND APPEND_SOVERSION)
+        set(PROJ_OUTPUT_NAME "proj" CACHE STRING "Name of the PROJ library")
+    else()
+        # Detect major version update if reusing a CMake build directory where the
+        # PROJ version major number has been updated in the meantime.
+        math(EXPR PROJ_VERSION_MAJOR_MINUS_ONE "${PROJ_VERSION_MAJOR} - 1")
+        if(DEFINED PROJ_OUTPUT_NAME AND PROJ_OUTPUT_NAME STREQUAL "proj_${PROJ_VERSION_MAJOR_MINUS_ONE}")
+            message(WARNING "PROJ_OUTPUT_NAME was set to ${PROJ_OUTPUT_NAME}. Updating it to proj_${PROJ_VERSION_MAJOR}")
+            unset(PROJ_OUTPUT_NAME CACHE)
+        endif()
+        set(PROJ_OUTPUT_NAME "proj_${PROJ_VERSION_MAJOR}" CACHE STRING "Name of the PROJ library")
+    endif()
+else()
+    set(PROJ_OUTPUT_NAME "proj" CACHE STRING "Name of the PROJ library")
+endif()
+
+set_target_properties(proj PROPERTIES OUTPUT_NAME ${PROJ_OUTPUT_NAME})
 
 if(WIN32)
   set_target_properties(proj
     PROPERTIES
-    VERSION "${${PROJECT_NAME}_BUILD_VERSION}"
-    OUTPUT_NAME "${PROJ_CORE_TARGET_OUTPUT_NAME}"
+    VERSION "${PROJ_VERSION}"
     ARCHIVE_OUTPUT_NAME proj
     CLEAN_DIRECT_OUTPUT 1)
+    if (MINGW AND BUILD_SHARED_LIBS AND APPEND_SOVERSION)
+        set_target_properties(proj PROPERTIES SUFFIX "-${PROJ_SOVERSION}${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    endif()
 elseif(BUILD_FRAMEWORKS_AND_BUNDLE)
   set_target_properties(proj
     PROPERTIES
-    VERSION "${${PROJECT_NAME}_BUILD_VERSION}"
+    VERSION "${PROJ_VERSION}"
     INSTALL_NAME_DIR ${PROJ_INSTALL_NAME_DIR}
     CLEAN_DIRECT_OUTPUT 1)
 else()
   set_target_properties(proj
     PROPERTIES
-    VERSION "${${PROJECT_NAME}_BUILD_VERSION}"
-    SOVERSION "${${PROJECT_NAME}_API_VERSION}"
+    VERSION "${PROJ_BUILD_VERSION}"
+    SOVERSION "${PROJ_SOVERSION}"
     CLEAN_DIRECT_OUTPUT 1)
 endif()
 
@@ -379,40 +572,45 @@ set_target_properties(proj
 set(PROJ_LIBRARIES proj)
 # hack, required for test/unit
 set(PROJ_LIBRARIES ${PROJ_LIBRARIES} PARENT_SCOPE)
+if(WIN32)
+target_link_libraries (proj
+  PRIVATE
+    shell32.lib
+    ole32.lib
+)
+endif()
 if(UNIX)
   find_library(M_LIB m)
   if(M_LIB)
     target_link_libraries(proj PRIVATE -lm)
   endif()
   find_library(DL_LIB dl)
-  if(M_LIB)
+  if(DL_LIB)
     target_link_libraries(proj PRIVATE -ldl)
   endif()
 endif()
-if(USE_THREAD AND Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
+if(Threads_FOUND AND CMAKE_USE_PTHREADS_INIT)
   target_link_libraries(proj PRIVATE ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
-target_include_directories(proj PRIVATE ${SQLITE3_INCLUDE_DIR})
-target_link_libraries(proj PRIVATE ${SQLITE3_LIBRARY})
+target_link_libraries(proj PRIVATE SQLite3::SQLite3)
 
 if(NLOHMANN_JSON STREQUAL "external")
   target_compile_definitions(proj PRIVATE EXTERNAL_NLOHMANN_JSON)
-  target_link_libraries(proj PRIVATE nlohmann_json::nlohmann_json)
+  target_link_libraries(proj
+    PRIVATE $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
 endif()
 
 if(TIFF_ENABLED)
   target_compile_definitions(proj PRIVATE -DTIFF_ENABLED)
-  target_include_directories(proj PRIVATE ${TIFF_INCLUDE_DIR})
-  target_link_libraries(proj PRIVATE ${TIFF_LIBRARY})
+  target_link_libraries(proj PRIVATE TIFF::TIFF)
 endif()
 
 if(CURL_ENABLED)
   target_compile_definitions(proj PRIVATE -DCURL_ENABLED)
-  target_include_directories(proj PRIVATE ${CURL_INCLUDE_DIR})
+  target_link_libraries(proj PRIVATE CURL::libcurl)
   target_link_libraries(proj
     PRIVATE
-      ${CURL_LIBRARY}
       $<$<CXX_COMPILER_ID:MSVC>:ws2_32>
       $<$<CXX_COMPILER_ID:MSVC>:wldap32>
       $<$<CXX_COMPILER_ID:MSVC>:advapi32>
@@ -420,9 +618,16 @@ if(CURL_ENABLED)
       $<$<CXX_COMPILER_ID:MSVC>:normaliz>)
 endif()
 
-if(MSVC AND BUILD_SHARED_LIBS)
-  target_compile_definitions(proj
-    PRIVATE PROJ_MSVC_DLL_EXPORT=1)
+if(EMSCRIPTEN_FETCH_ENABLED)
+  target_compile_definitions(proj PRIVATE -DEMSCRIPTEN_FETCH_ENABLED)
+endif()
+
+if(BUILD_SHARED_LIBS)
+  if(MSVC)
+    target_compile_definitions(proj PRIVATE PROJ_MSVC_DLL_EXPORT=1)
+  endif()
+else()
+  target_compile_definitions(proj PUBLIC PROJ_DLL=)
 endif()
 
 ##############################################
@@ -430,19 +635,19 @@ endif()
 ##############################################
 install(TARGETS proj
   EXPORT targets
-  RUNTIME DESTINATION ${BINDIR}
-  LIBRARY DESTINATION ${LIBDIR}
-  ARCHIVE DESTINATION ${LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   FRAMEWORK DESTINATION ${FRAMEWORKDIR})
 
 if(NOT BUILD_FRAMEWORKS_AND_BUNDLE)
   install(FILES ${ALL_LIBPROJ_HEADERS}
-    DESTINATION ${INCLUDEDIR})
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 endif()
 
 ##############################################
 # Core configuration summary
 ##############################################
-print_variable(PROJ_CORE_TARGET_OUTPUT_NAME)
+print_variable(PROJ_OUTPUT_NAME)
 print_variable(BUILD_SHARED_LIBS)
 print_variable(PROJ_LIBRARIES)

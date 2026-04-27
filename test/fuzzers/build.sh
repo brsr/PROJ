@@ -29,14 +29,16 @@ X64_PACKAGES="zlib1g-dev libssl-dev libsqlite3-dev"
 
 if [ "$ARCHITECTURE" = "i386" ]; then
     apt-get install -y $I386_PACKAGES
+    PROJ_CMAKE_EXTRA_ARGS=" -DSQLite3_LIBRARY=/lib/i386-linux-gnu/libsqlite3.a"
 else
     apt-get install -y $X64_PACKAGES
+    PROJ_CMAKE_EXTRA_ARGS=""
 fi
 
-# build libcurl.a (builing against Ubuntu libcurl.a doesn't work easily)
+# build libcurl.a (building against Ubuntu libcurl.a doesn't work easily)
 cd curl
 autoreconf -i
-./configure --disable-shared --with-openssl --prefix=$SRC/install
+./configure --disable-shared --with-openssl --without-libpsl --prefix=$SRC/install
 make clean -s
 make -j$(nproc) -s
 make install
@@ -50,10 +52,21 @@ make -j$(nproc)
 make install
 cd ..
 
-./autogen.sh
-SQLITE3_CFLAGS=-I/usr/include SQLITE3_LIBS=-lsqlite3 TIFF_CFLAGS=-I$SRC/install/include TIFF_LIBS="-L$SRC/install/lib -ltiff" ./configure --disable-shared --with-curl=$SRC/install/bin/curl-config
+mkdir build
+cd build
+cmake .. -DBUILD_SHARED_LIBS:BOOL=OFF \
+        -DCURL_INCLUDE_DIR:PATH="$SRC/install/include" \
+        -DCURL_LIBRARY_RELEASE:FILEPATH="$SRC/install/lib/libcurl.a" \
+        -DTIFF_INCLUDE_DIR:PATH="$SRC/install/include" \
+        -DTIFF_LIBRARY_RELEASE:FILEPATH="$SRC/install/lib/libtiff.a" \
+        -DCMAKE_INSTALL_PREFIX=$SRC/install \
+        -DBUILD_APPS:BOOL=OFF \
+        -DBUILD_TESTING:BOOL=OFF \
+        ${PROJ_CMAKE_EXTRA_ARGS}
 make clean -s
 make -j$(nproc) -s
+make install
+cd ..
 
 EXTRA_LIBS="-lpthread -Wl,-Bstatic -lsqlite3 -L$SRC/install/lib -ltiff -lcurl -lssl -lcrypto -lz -Wl,-Bdynamic"
 
@@ -66,7 +79,7 @@ build_fuzzer()
     echo "Building fuzzer $fuzzerName"
     $CXX $CXXFLAGS -std=c++11 -fvisibility=hidden -Isrc -Iinclude \
         $sourceFilename $* -o $OUT/$fuzzerName \
-        $LIB_FUZZING_ENGINE src/.libs/libproj.a $EXTRA_LIBS
+        $LIB_FUZZING_ENGINE "$SRC/install/lib/libproj.a" $EXTRA_LIBS
 }
 
 build_fuzzer proj_crs_to_crs_fuzzer test/fuzzers/proj_crs_to_crs_fuzzer.cpp
@@ -75,3 +88,4 @@ echo "[libfuzzer]" > $OUT/proj_crs_to_crs_fuzzer.options
 echo "max_len = 10000" >> $OUT/proj_crs_to_crs_fuzzer.options
 
 cp -r data/* $OUT
+cp -r build/data/* $OUT

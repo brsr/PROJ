@@ -26,16 +26,16 @@ of that.
 Many North American systems are defined with coordinates in feet. For example
 in Vermont::
 
-    +proj=pipeline
-    +step +proj=tmerc +lat_0=42.5 +lon_0=-72.5 +k_0=0.999964286 +x_0=500000.00001016 +y_0=0
-    +step +proj=unitconvert +xy_in=m +xy_out=us-ft
+    +proj=pipeline \
+    +step +proj=tmerc +lat_0=42.5 +lon_0=-72.5 +k_0=0.999964286 +x_0=500000.00001016 \
+    +step +proj=unitconvert +xy_out=us-ft
 
 Often when working with GNSS data the timestamps are presented in GPS-weeks,
 but when the data transformed with the `helmert` operation timestamps are
 expected to be in units of decimalyears. This can be fixed with `unitconvert`::
 
-    +proj=pipeline
-    +step +proj=unitconvert +t_in=gps_week +t_out=decimalyear
+    +proj=pipeline \
+    +step +proj=unitconvert +t_in=gps_week +t_out=decimalyear \
     +step +proj=helmert +epoch=2000.0 +t_obs=2017.5 ...
 
 Parameters
@@ -44,16 +44,16 @@ Parameters
 .. option:: +xy_in=<unit> or <conversion_factor>
 
     Horizontal input units. See :ref:`distance_units` and :ref:`angular_units`
-    for a list of available units. `<conversion_factor>` is the conversion factor
+    for a list of available units. Default: meter. `<conversion_factor>` is the conversion factor
     from the input unit to metre for linear units, or to radian for angular
-    units.
+    units. Default if not given: meters.
 
 .. option:: +xy_out=<unit> or <conversion_factor>
 
     Horizontal output units. See :ref:`distance_units` and :ref:`angular_units`
-    for a list of available units. `<conversion_factor>` is the conversion factor
+    for a list of available units. Default: meter. `<conversion_factor>` is the conversion factor
     from the output unit to metre for linear units, or to radian for angular
-    units.
+    units. Default if not given: meters.
 
 .. option:: +z_in=<unit> or <conversion_factor>
 
@@ -157,6 +157,16 @@ Time units
 ###############################################################################
 
 In the table below all time units supported by PROJ are listed.
+
+    .. note::
+
+        When converting time units from a date-only format (`yyyymmdd`), PROJ
+        assumes a time value of 00:00 midnight.  When converting time units
+        to a date-only format, PROJ rounds to the *nearest* date at 00:00
+        midnight.  That is, any time values less than 12:00 noon will round to
+        00:00 on the same day.  Time values greater than or equal to 12:00 noon
+        will round to 00:00 on the following day.
+
 
 +--------------+-----------------------------+
 | Label        | Name                        |

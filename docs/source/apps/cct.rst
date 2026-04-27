@@ -29,7 +29,7 @@ by :c:func:`proj_create`, provided it expresses a coordinate operation
       uniqueness is not guaranteed, heuristics are applied to determine the appropriate best match.
     - a OGC URN combining references for concatenated operations
       (e.g. "urn:ogc:def:coordinateOperation,coordinateOperation:EPSG::3895,coordinateOperation:EPSG::1618")
-    - a PROJJSON string. The jsonschema is at https://proj.org/schemas/v0.2/projjson.schema.json
+    - a PROJJSON string. The jsonschema is at https://proj.org/schemas/v0.4/projjson.schema.json
 
     .. versionadded:: 8.0.0
 
@@ -49,8 +49,6 @@ file referenced by the {object_reference} must contain a valid
 
     .. versionadded:: 8.0.0
 
-
-
 Description
 ***********
 
@@ -59,6 +57,8 @@ performs transformation coordinate systems on a set of input points. The
 coordinate system transformation can include translation between projected
 and geographic coordinates as well as the application of datum shifts.
 
+Note however that unlike the :program:`proj`, angular input must be in decimal degrees.
+Any minutes and seconds given will be silently dropped.
 
 The following control parameters can appear in any order:
 
@@ -72,7 +72,7 @@ The following control parameters can appear in any order:
 
     .. versionadded:: 5.2.0
 
-    Specify the number of decimals in the output.
+    Specify the number of decimals to round to in the output.
 
 .. option:: -I
 
@@ -171,7 +171,7 @@ Should give results comparable to the classic :program:`proj` command
 
 .. code-block:: console
 
-      cct +proj=pipeline +proj=utm +ellps=GRS80 +zone=32 +step +step +inv
+      cct +proj=pipeline +ellps=GRS80 +zone=32 +step +proj=utm +step +proj=utm +inv 
 
 4. As (2) but specify input columns for longitude, latitude, height and time:
 
@@ -186,7 +186,7 @@ Should give results comparable to the classic :program:`proj` command
 
       cct -t 0 -z 0 +proj=utm +ellps=GRS80 +zone=32
 
-6. Auxiliary data following the coordinate input is forward to the output
+6. Auxiliary data following the coordinate input is forwarded to the output
    stream:
 
 .. code-block:: console

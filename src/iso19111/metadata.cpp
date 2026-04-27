@@ -41,6 +41,8 @@
 #include "proj_json_streaming_writer.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -76,14 +78,14 @@ struct Citation::Private {
 // ---------------------------------------------------------------------------
 
 //! @cond Doxygen_Suppress
-Citation::Citation() : d(internal::make_unique<Private>()) {}
+Citation::Citation() : d(std::make_unique<Private>()) {}
 //! @endcond
 
 // ---------------------------------------------------------------------------
 
 /** \brief Constructs a citation by its title. */
 Citation::Citation(const std::string &titleIn)
-    : d(internal::make_unique<Private>()) {
+    : d(std::make_unique<Private>()) {
     d->title = titleIn;
 }
 
@@ -91,7 +93,7 @@ Citation::Citation(const std::string &titleIn)
 
 //! @cond Doxygen_Suppress
 Citation::Citation(const Citation &other)
-    : d(internal::make_unique<Private>(*(other.d))) {}
+    : d(std::make_unique<Private>(*(other.d))) {}
 
 // ---------------------------------------------------------------------------
 
@@ -122,7 +124,7 @@ struct GeographicExtent::Private {};
 
 // ---------------------------------------------------------------------------
 
-GeographicExtent::GeographicExtent() : d(internal::make_unique<Private>()) {}
+GeographicExtent::GeographicExtent() : d(std::make_unique<Private>()) {}
 
 // ---------------------------------------------------------------------------
 
@@ -153,7 +155,7 @@ struct GeographicBoundingBox::Private {
 GeographicBoundingBox::GeographicBoundingBox(double west, double south,
                                              double east, double north)
     : GeographicExtent(),
-      d(internal::make_unique<Private>(west, south, east, north)) {}
+      d(std::make_unique<Private>(west, south, east, north)) {}
 
 // ---------------------------------------------------------------------------
 
@@ -231,6 +233,32 @@ GeographicBoundingBoxNNPtr GeographicBoundingBox::create(double west,
                                                          double south,
                                                          double east,
                                                          double north) {
+    if (std::isnan(west) || std::isnan(south) || std::isnan(east) ||
+        std::isnan(north)) {
+        throw InvalidValueTypeException(
+            "GeographicBoundingBox::create() does not accept NaN values");
+    }
+    if (south > north) {
+        throw InvalidValueTypeException(
+            "GeographicBoundingBox::create() does not accept south > north");
+    }
+    // Avoid creating a degenerate bounding box if reduced to a point or a line
+    if (west == east) {
+        if (west > -180)
+            west =
+                std::nextafter(west, -std::numeric_limits<double>::infinity());
+        if (east < 180)
+            east =
+                std::nextafter(east, std::numeric_limits<double>::infinity());
+    }
+    if (south == north) {
+        if (south > -90)
+            south =
+                std::nextafter(south, -std::numeric_limits<double>::infinity());
+        if (north < 90)
+            north =
+                std::nextafter(north, std::numeric_limits<double>::infinity());
+    }
     return GeographicBoundingBox::nn_make_shared<GeographicBoundingBox>(
         west, south, east, north);
 }
@@ -272,7 +300,7 @@ bool GeographicBoundingBox::contains(const GeographicExtentNNPtr &other) const {
     }
 
     if (W == -180.0 && E == 180.0) {
-        return true;
+        return oW != oE;
     }
 
     if (oW == -180.0 && oE == 180.0) {
@@ -315,31 +343,45 @@ bool GeographicBoundingBox::Private::intersects(const Private &other) const {
     const double oN = other.north_;
     const double oS = other.south_;
 
+    // Check intersection along the latitude axis
     if (N < oS || S > oN) {
         return false;
     }
 
+    // Check world coverage of this bbox, and other bbox overlapping
+    // antimeridian (e.g. oW=175 and oE=-175)
+    // Check oW > oE written for symmetry with the intersection() method.
     if (W == -180.0 && E == 180.0 && oW > oE) {
         return true;
     }
 
+    // Check world coverage of other bbox, and this bbox overlapping
+    // antimeridian (e.g. W=175 and E=-175)
+    // Check W > E written for symmetry with the intersection() method.
     if (oW == -180.0 && oE == 180.0 && W > E) {
         return true;
     }
 
     // Normal bounding box ?
     if (W <= E) {
-        if (oW < oE) {
+        if (oW <= oE) {
             if (std::max(W, oW) < std::min(E, oE)) {
                 return true;
             }
             return false;
         }
 
+        // Bail out on longitudes not in [-180,180]. We could probably make
+        // some sense of them, but this check at least avoid potential infinite
+        // recursion.
+        if (oW > 180 || oE < -180) {
+            return false;
+        }
+
         return intersects(Private(oW, oS, 180.0, oN)) ||
                intersects(Private(-180.0, oS, oE, oN));
 
-        // No: crossing antimerian
+        // No: crossing antimeridian
     } else {
         if (oW <= oE) {
             return other.intersects(*this);
@@ -388,29 +430,41 @@ GeographicBoundingBox::Private::intersection(const Private &otherExtent) const {
     const double oN = otherExtent.north_;
     const double oS = otherExtent.south_;
 
+    // Check intersection along the latitude axis
     if (N < oS || S > oN) {
         return nullptr;
     }
 
+    // Check world coverage of this bbox, and other bbox overlapping
+    // antimeridian (e.g. oW=175 and oE=-175)
     if (W == -180.0 && E == 180.0 && oW > oE) {
-        return internal::make_unique<Private>(oW, std::max(S, oS), oE,
-                                              std::min(N, oN));
+        return std::make_unique<Private>(oW, std::max(S, oS), oE,
+                                         std::min(N, oN));
     }
 
+    // Check world coverage of other bbox, and this bbox overlapping
+    // antimeridian (e.g. W=175 and E=-175)
     if (oW == -180.0 && oE == 180.0 && W > E) {
-        return internal::make_unique<Private>(W, std::max(S, oS), E,
-                                              std::min(N, oN));
+        return std::make_unique<Private>(W, std::max(S, oS), E,
+                                         std::min(N, oN));
     }
 
     // Normal bounding box ?
     if (W <= E) {
-        if (oW < oE) {
-            auto res = internal::make_unique<Private>(
-                std::max(W, oW), std::max(S, oS), std::min(E, oE),
-                std::min(N, oN));
-            if (res->west_ < res->east_) {
-                return res;
+        if (oW <= oE) {
+            const double resW = std::max(W, oW);
+            const double resE = std::min(E, oE);
+            if (resW < resE) {
+                return std::make_unique<Private>(resW, std::max(S, oS), resE,
+                                                 std::min(N, oN));
             }
+            return nullptr;
+        }
+
+        // Bail out on longitudes not in [-180,180]. We could probably make
+        // some sense of them, but this check at least avoid potential infinite
+        // recursion.
+        if (oW > 180 || oE < -180) {
             return nullptr;
         }
 
@@ -427,14 +481,14 @@ GeographicBoundingBox::Private::intersection(const Private &otherExtent) const {
             return inter1;
         }
         return inter2;
-        // No: crossing antimerian
+        // No: crossing antimeridian
     } else {
         if (oW <= oE) {
             return otherExtent.intersection(*this);
         }
 
-        return internal::make_unique<Private>(std::max(W, oW), std::max(S, oS),
-                                              std::min(E, oE), std::min(N, oN));
+        return std::make_unique<Private>(std::max(W, oW), std::max(S, oS),
+                                         std::min(E, oE), std::min(N, oN));
     }
 }
 //! @endcond
@@ -457,7 +511,7 @@ struct VerticalExtent::Private {
 
 VerticalExtent::VerticalExtent(double minimumIn, double maximumIn,
                                const common::UnitOfMeasureNNPtr &unitIn)
-    : d(internal::make_unique<Private>(minimumIn, maximumIn, unitIn)) {}
+    : d(std::make_unique<Private>(minimumIn, maximumIn, unitIn)) {}
 
 // ---------------------------------------------------------------------------
 
@@ -554,7 +608,7 @@ struct TemporalExtent::Private {
 
 TemporalExtent::TemporalExtent(const std::string &startIn,
                                const std::string &stopIn)
-    : d(internal::make_unique<Private>(startIn, stopIn)) {}
+    : d(std::make_unique<Private>(startIn, stopIn)) {}
 
 // ---------------------------------------------------------------------------
 
@@ -630,12 +684,11 @@ struct Extent::Private {
 // ---------------------------------------------------------------------------
 
 //! @cond Doxygen_Suppress
-Extent::Extent() : d(internal::make_unique<Private>()) {}
+Extent::Extent() : d(std::make_unique<Private>()) {}
 
 // ---------------------------------------------------------------------------
 
-Extent::Extent(const Extent &other)
-    : d(internal::make_unique<Private>(*other.d)) {}
+Extent::Extent(const Extent &other) : d(std::make_unique<Private>(*other.d)) {}
 
 // ---------------------------------------------------------------------------
 
@@ -895,8 +948,8 @@ void Identifier::Private::setProperties(
                                                     AUTHORITY_KEY);
                 }
             } else {
-                if (auto citation =
-                        dynamic_cast<const Citation *>(pVal->get())) {
+                auto citation = dynamic_cast<const Citation *>(pVal->get());
+                if (citation) {
                     authority_ = *citation;
                 } else {
                     throw InvalidValueTypeException("Invalid value type for " +
@@ -937,7 +990,7 @@ void Identifier::Private::setProperties(
 
 Identifier::Identifier(const std::string &codeIn,
                        const util::PropertyMap &properties)
-    : d(internal::make_unique<Private>(codeIn, properties)) {}
+    : d(std::make_unique<Private>(codeIn, properties)) {}
 
 // ---------------------------------------------------------------------------
 
@@ -945,12 +998,12 @@ Identifier::Identifier(const std::string &codeIn,
 
 // ---------------------------------------------------------------------------
 
-Identifier::Identifier() : d(internal::make_unique<Private>()) {}
+Identifier::Identifier() : d(std::make_unique<Private>()) {}
 
 // ---------------------------------------------------------------------------
 
 Identifier::Identifier(const Identifier &other)
-    : d(internal::make_unique<Private>(*(other.d))) {}
+    : d(std::make_unique<Private>(*(other.d))) {}
 
 // ---------------------------------------------------------------------------
 
@@ -1057,7 +1110,12 @@ const optional<std::string> &Identifier::uri() PROJ_PURE_DEFN {
 void Identifier::_exportToWKT(WKTFormatter *formatter) const {
     const bool isWKT2 = formatter->version() == WKTFormatter::Version::WKT2;
     const std::string &l_code = code();
-    const std::string &l_codeSpace = *codeSpace();
+    std::string l_codeSpace = *codeSpace();
+    std::string l_version = *version();
+    const auto &dbContext = formatter->databaseContext();
+    if (dbContext) {
+        dbContext->getAuthorityAndVersion(*codeSpace(), l_codeSpace, l_version);
+    }
     if (!l_codeSpace.empty() && !l_code.empty()) {
         if (isWKT2) {
             formatter->startNode(WKTConstants::ID, false);
@@ -1068,17 +1126,17 @@ void Identifier::_exportToWKT(WKTFormatter *formatter) const {
             } catch (const std::exception &) {
                 formatter->addQuotedString(l_code);
             }
-            if (version().has_value()) {
-                auto l_version = *(version());
-                try {
-                    (void)c_locale_stod(l_version);
+            if (!l_version.empty()) {
+                bool isDouble = false;
+                (void)c_locale_stod(l_version, isDouble);
+                if (isDouble) {
                     formatter->add(l_version);
-                } catch (const std::exception &) {
+                } else {
                     formatter->addQuotedString(l_version);
                 }
             }
             if (authority().has_value() &&
-                *(authority()->title()) != l_codeSpace) {
+                *(authority()->title()) != *codeSpace()) {
                 formatter->startNode(WKTConstants::CITATION, false);
                 formatter->addQuotedString(*(authority()->title()));
                 formatter->endNode();
@@ -1102,7 +1160,12 @@ void Identifier::_exportToWKT(WKTFormatter *formatter) const {
 
 void Identifier::_exportToJSON(JSONFormatter *formatter) const {
     const std::string &l_code = code();
-    const std::string &l_codeSpace = *codeSpace();
+    std::string l_codeSpace = *codeSpace();
+    std::string l_version = *version();
+    const auto &dbContext = formatter->databaseContext();
+    if (dbContext) {
+        dbContext->getAuthorityAndVersion(*codeSpace(), l_codeSpace, l_version);
+    }
     if (!l_codeSpace.empty() && !l_code.empty()) {
         auto writer = formatter->writer();
         auto objContext(formatter->MakeObjectContext(nullptr, false));
@@ -1113,6 +1176,26 @@ void Identifier::_exportToJSON(JSONFormatter *formatter) const {
             writer->Add(std::stoi(l_code));
         } catch (const std::exception &) {
             writer->Add(l_code);
+        }
+
+        if (!l_version.empty()) {
+            writer->AddObjKey("version");
+            bool isDouble = false;
+            (void)c_locale_stod(l_version, isDouble);
+            if (isDouble) {
+                writer->AddUnquoted(l_version.c_str());
+            } else {
+                writer->Add(l_version);
+            }
+        }
+        if (authority().has_value() &&
+            *(authority()->title()) != *codeSpace()) {
+            writer->AddObjKey("authority_citation");
+            writer->Add(*(authority()->title()));
+        }
+        if (uri().has_value()) {
+            writer->AddObjKey("uri");
+            writer->Add(*(uri()));
         }
     }
 }
@@ -1125,6 +1208,14 @@ void Identifier::_exportToJSON(JSONFormatter *formatter) const {
 static bool isIgnoredChar(char ch) {
     return ch == ' ' || ch == '_' || ch == '-' || ch == '/' || ch == '(' ||
            ch == ')' || ch == '.' || ch == '&' || ch == ',';
+}
+//! @endcond
+
+// ---------------------------------------------------------------------------
+
+//! @cond Doxygen_Suppress
+static char lower(char ch) {
+    return ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch;
 }
 //! @endcond
 
@@ -1165,21 +1256,94 @@ static const struct utf8_to_lower *get_ascii_replacement(const char *c_str) {
 // ---------------------------------------------------------------------------
 
 //! @cond Doxygen_Suppress
-std::string Identifier::canonicalizeName(const std::string &str) {
+
+/** Checks if needle is a substring of c_str.
+ *
+ * e.g matchesLowerCase("JavaScript", "java") returns true
+ */
+static bool matchesLowerCase(const char *c_str, const char *needle) {
+    size_t i = 0;
+    for (; c_str[i] && needle[i]; ++i) {
+        if (lower(c_str[i]) != lower(needle[i])) {
+            return false;
+        }
+    }
+    return needle[i] == 0;
+}
+//! @endcond
+
+// ---------------------------------------------------------------------------
+
+//! @cond Doxygen_Suppress
+
+static inline bool isdigit(char ch) { return ch >= '0' && ch <= '9'; }
+//! @endcond
+
+// ---------------------------------------------------------------------------
+
+//! @cond Doxygen_Suppress
+std::string Identifier::canonicalizeName(const std::string &str,
+                                         bool biggerDifferencesAllowed) {
     std::string res;
     const char *c_str = str.c_str();
     for (size_t i = 0; c_str[i] != 0; ++i) {
-        const auto ch = c_str[i];
+        const auto ch = lower(c_str[i]);
         if (ch == ' ' && c_str[i + 1] == '+' && c_str[i + 2] == ' ') {
             i += 2;
             continue;
         }
-        if (ch == '1' && !res.empty() &&
-            !(res.back() >= '0' && res.back() <= '9') && c_str[i + 1] == '9' &&
-            c_str[i + 2] >= '0' && c_str[i + 2] <= '9') {
+
+        // Canonicalize "19dd" (where d is a digit) as "dd"
+        if (ch == '1' && !res.empty() && !isdigit(res.back()) &&
+            c_str[i + 1] == '9' && isdigit(c_str[i + 2]) &&
+            isdigit(c_str[i + 3])) {
             ++i;
             continue;
         }
+
+        if (biggerDifferencesAllowed) {
+
+            const auto skipSubstring = [](char l_ch, const char *l_str,
+                                          size_t &idx, const char *substr) {
+                if (l_ch == substr[0] && idx > 0 &&
+                    isIgnoredChar(l_str[idx - 1]) &&
+                    matchesLowerCase(l_str + idx, substr)) {
+                    idx += strlen(substr) - 1;
+                    return true;
+                }
+                return false;
+            };
+
+            // Skip "zone" or "height" if preceding character is a space
+            if (skipSubstring(ch, c_str, i, "zone") ||
+                skipSubstring(ch, c_str, i, "height")) {
+                continue;
+            }
+
+            // Replace a substring by its first character if preceding character
+            // is a space or a digit
+            const auto replaceByFirstChar = [](char l_ch, const char *l_str,
+                                               size_t &idx, const char *substr,
+                                               std::string &l_res) {
+                if (l_ch == substr[0] && idx > 0 &&
+                    (isIgnoredChar(l_str[idx - 1]) ||
+                     isdigit(l_str[idx - 1])) &&
+                    matchesLowerCase(l_str + idx, substr)) {
+                    l_res.push_back(l_ch);
+                    idx += strlen(substr) - 1;
+                    return true;
+                }
+                return false;
+            };
+
+            // Replace "north" or "south" by its first character if preceding
+            // character is a space or a digit
+            if (replaceByFirstChar(ch, c_str, i, "north", res) ||
+                replaceByFirstChar(ch, c_str, i, "south", res)) {
+                continue;
+            }
+        }
+
         if (static_cast<unsigned char>(ch) > 127) {
             const auto *replacement = get_ascii_replacement(c_str + i);
             if (replacement) {
@@ -1188,8 +1352,15 @@ std::string Identifier::canonicalizeName(const std::string &str) {
                 continue;
             }
         }
+
+        if (matchesLowerCase(c_str + i, "_IntlFeet") &&
+            c_str[i + strlen("_IntlFeet")] == 0) {
+            res += "feet";
+            break;
+        }
+
         if (!isIgnoredChar(ch)) {
-            res.push_back(static_cast<char>(::tolower(ch)));
+            res.push_back(ch);
         }
     }
     return res;
@@ -1202,23 +1373,42 @@ std::string Identifier::canonicalizeName(const std::string &str) {
  *
  * Two names are equivalent by removing any space, underscore, dash, slash,
  * { or } character from them, and comparing in a case insensitive way.
+ *
+ * @param a first string
+ * @param b second string
+ * @param biggerDifferencesAllowed if true, "height" and "zone" words are
+ * ignored, and "north" is shortened as "n" and "south" as "n".
+ * @since 9.6
  */
-bool Identifier::isEquivalentName(const char *a, const char *b) noexcept {
+bool Identifier::isEquivalentName(const char *a, const char *b,
+                                  bool biggerDifferencesAllowed) noexcept {
     size_t i = 0;
     size_t j = 0;
     char lastValidA = 0;
     char lastValidB = 0;
-    while (a[i] != 0 && b[j] != 0) {
-        char aCh = a[i];
-        char bCh = b[j];
-        if (aCh == ' ' && a[i + 1] == '+' && a[i + 2] == ' ') {
+    while (a[i] != 0 || b[j] != 0) {
+        char aCh = lower(a[i]);
+        char bCh = lower(b[j]);
+        if (aCh == ' ' && a[i + 1] == '+' && a[i + 2] == ' ' && a[i + 3] != 0) {
             i += 3;
             continue;
         }
-        if (bCh == ' ' && b[j + 1] == '+' && b[j + 2] == ' ') {
+        if (bCh == ' ' && b[j + 1] == '+' && b[j + 2] == ' ' && b[j + 3] != 0) {
             j += 3;
             continue;
         }
+
+        if (matchesLowerCase(a + i, "_IntlFeet") &&
+            a[i + strlen("_IntlFeet")] == 0 &&
+            matchesLowerCase(b + j, "_Feet") && b[j + strlen("_Feet")] == 0) {
+            return true;
+        } else if (matchesLowerCase(a + i, "_Feet") &&
+                   a[i + strlen("_Feet")] == 0 &&
+                   matchesLowerCase(b + j, "_IntlFeet") &&
+                   b[j + strlen("_IntlFeet")] == 0) {
+            return true;
+        }
+
         if (isIgnoredChar(aCh)) {
             ++i;
             continue;
@@ -1227,18 +1417,69 @@ bool Identifier::isEquivalentName(const char *a, const char *b) noexcept {
             ++j;
             continue;
         }
-        if (aCh == '1' && !(lastValidA >= '0' && lastValidA <= '9') &&
-            a[i + 1] == '9' && a[i + 2] >= '0' && a[i + 2] <= '9') {
+
+        // Canonicalize "19dd" (where d is a digit) as "dd"
+        if (aCh == '1' && !isdigit(lastValidA) && a[i + 1] == '9' &&
+            isdigit(a[i + 2]) && isdigit(a[i + 3])) {
             i += 2;
             lastValidA = '9';
             continue;
         }
-        if (bCh == '1' && !(lastValidB >= '0' && lastValidB <= '9') &&
-            b[j + 1] == '9' && b[j + 2] >= '0' && b[j + 2] <= '9') {
+        if (bCh == '1' && !isdigit(lastValidB) && b[j + 1] == '9' &&
+            isdigit(b[j + 2]) && isdigit(b[j + 3])) {
             j += 2;
             lastValidB = '9';
             continue;
         }
+
+        if (biggerDifferencesAllowed) {
+            // Skip a substring if preceding character is a space
+            const auto skipSubString = [](char ch, const char *str, size_t &idx,
+                                          const char *substr) {
+                if (ch == substr[0] && idx > 0 && isIgnoredChar(str[idx - 1]) &&
+                    matchesLowerCase(str + idx, substr)) {
+                    idx += strlen(substr);
+                    return true;
+                }
+                return false;
+            };
+
+            bool skip = false;
+            if (skipSubString(aCh, a, i, "zone"))
+                skip = true;
+            if (skipSubString(bCh, b, j, "zone"))
+                skip = true;
+            if (skip)
+                continue;
+
+            if (skipSubString(aCh, a, i, "height"))
+                skip = true;
+            if (skipSubString(bCh, b, j, "height"))
+                skip = true;
+            if (skip)
+                continue;
+
+            // Replace a substring by its first character if preceding character
+            // is a space or a digit
+            const auto replaceByFirstChar = [](char ch, const char *str,
+                                               size_t &idx,
+                                               const char *substr) {
+                if (ch == substr[0] && idx > 0 &&
+                    (isIgnoredChar(str[idx - 1]) || isdigit(str[idx - 1])) &&
+                    matchesLowerCase(str + idx, substr)) {
+                    idx += strlen(substr) - 1;
+                    return true;
+                }
+                return false;
+            };
+
+            if (!replaceByFirstChar(aCh, a, i, "north"))
+                replaceByFirstChar(aCh, a, i, "south");
+
+            if (!replaceByFirstChar(bCh, b, j, "north"))
+                replaceByFirstChar(bCh, b, j, "south");
+        }
+
         if (static_cast<unsigned char>(aCh) > 127) {
             const auto *replacement = get_ascii_replacement(a + i);
             if (replacement) {
@@ -1253,21 +1494,29 @@ bool Identifier::isEquivalentName(const char *a, const char *b) noexcept {
                 j += strlen(replacement->utf8) - 1;
             }
         }
-        if (::tolower(aCh) != ::tolower(bCh)) {
+
+        if (aCh != bCh) {
             return false;
         }
         lastValidA = aCh;
         lastValidB = bCh;
-        ++i;
-        ++j;
+        if (aCh != 0)
+            ++i;
+        if (bCh != 0)
+            ++j;
     }
-    while (a[i] != 0 && isIgnoredChar(a[i])) {
-        ++i;
-    }
-    while (b[j] != 0 && isIgnoredChar(b[j])) {
-        ++j;
-    }
-    return a[i] == b[j];
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+
+/** \brief Returns whether two names are considered equivalent.
+ *
+ * Two names are equivalent by removing any space, underscore, dash, slash,
+ * { or } character from them, and comparing in a case insensitive way.
+ */
+bool Identifier::isEquivalentName(const char *a, const char *b) noexcept {
+    return isEquivalentName(a, b, /* biggerDifferencesAllowed = */ true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1281,7 +1530,7 @@ struct PositionalAccuracy::Private {
 // ---------------------------------------------------------------------------
 
 PositionalAccuracy::PositionalAccuracy(const std::string &valueIn)
-    : d(internal::make_unique<Private>()) {
+    : d(std::make_unique<Private>()) {
     d->value_ = valueIn;
 }
 

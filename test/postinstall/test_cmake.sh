@@ -1,43 +1,54 @@
-#!/bin/sh
+#!/bin/sh -e
 
 # Post-install tests with CMake
 #
 # First required argument is the installed prefix, which
 # is used to set CMAKE_PREFIX_PATH
-
-set -e
-
-echo "Running post-install tests with CMake"
-
-CMAKE_PREFIX_PATH=$1
-if [ -z "$CMAKE_PREFIX_PATH" ]; then
-    echo "First positional argument CMAKE_PREFIX_PATH required"
-    exit 1
-fi
-
-echo "CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH"
-
+# Second argument is either shared (default) or static
+# Third argument is either BOTH_CONFIG (default), to test both PROJ and PROJ4
+# CMake configurations, or PROJ_CONFIG to only test PROJ.
 cd $(dirname $0)
+. ./common.sh
+main_setup $1 $2
 
-cd testappprojinfo
-rm -rf build
+case $3 in
+"" | BOTH_CONFIG) export TESTED_CONFIGS=BOTH_CONFIG ;;
+     PROJ_CONFIG) export TESTED_CONFIGS=PROJ_CONFIG ;;
+*)
+  echo "Third argument must be either BOTH_CONFIG (default) or PROJ_CONFIG"
+  exit 1 ;;
+esac
 
-# Check CMake project name PROJ
-mkdir build
-cd build
-cmake -DCMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH -DUSE_PROJ_NAME=PROJ -DCMAKE_VERBOSE_MAKEFILE=ON ..
-cmake --build .
-ctest -VV .
+echo "Running post-install tests with CMake (${BUILD_MODE}, ${TESTED_CONFIGS})"
+
+
+cmake_make_ctest(){
+  rm -rf build
+  mkdir build
+  cd build
+
+  cmake -DCMAKE_PREFIX_PATH=${prefix} -DUSE_PROJ_NAME=$1 ..
+  VERBOSE=1 make
+  ctest --output-on-failure
+
+  cd ..
+  rm -rf build
+}
+
+echo "Testing C app"
+cd c_app
+cmake_make_ctest PROJ
+if test "${TESTED_CONFIGS}" = "BOTH_CONFIG"; then
+    cmake_make_ctest PROJ4
+fi
 cd ..
-rm -rf build
 
-# Check legacy CMake project name PROJ4
-mkdir build
-cd build
-cmake -DCMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH -DUSE_PROJ_NAME=PROJ4 -DCMAKE_VERBOSE_MAKEFILE=ON ..
-cmake --build .
-ctest -VV .
+echo "Testing C++ app"
+cd cpp_app
+cmake_make_ctest PROJ
+if test "${TESTED_CONFIGS}" = "BOTH_CONFIG"; then
+    cmake_make_ctest PROJ4
+fi
 cd ..
-rm -rf build
 
-cd ..
+echo "Finished running post-install tests CMake (${BUILD_MODE}, ${TESTED_CONFIGS})"

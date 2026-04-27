@@ -47,9 +47,12 @@ struct CoordinateOperation::Private {
     std::weak_ptr<crs::CRS> sourceCRSWeak_{};
     std::weak_ptr<crs::CRS> targetCRSWeak_{};
     crs::CRSPtr interpolationCRS_{};
-    util::optional<common::DataEpoch> sourceCoordinateEpoch_{};
-    util::optional<common::DataEpoch> targetCoordinateEpoch_{};
+    std::shared_ptr<util::optional<common::DataEpoch>> sourceCoordinateEpoch_{
+        std::make_shared<util::optional<common::DataEpoch>>()};
+    std::shared_ptr<util::optional<common::DataEpoch>> targetCoordinateEpoch_{
+        std::make_shared<util::optional<common::DataEpoch>>()};
     bool hasBallparkTransformation_ = false;
+    bool requiresPerCoordinateInputTime_ = false;
 
     // do not set this for a ProjectedCRS.definingConversion
     struct CRSStrongRef {
@@ -71,9 +74,11 @@ struct CoordinateOperation::Private {
           sourceCoordinateEpoch_(other.sourceCoordinateEpoch_),
           targetCoordinateEpoch_(other.targetCoordinateEpoch_),
           hasBallparkTransformation_(other.hasBallparkTransformation_),
-          strongRef_(other.strongRef_ ? internal::make_unique<CRSStrongRef>(
-                                            *(other.strongRef_))
-                                      : nullptr) {}
+          requiresPerCoordinateInputTime_(
+              other.requiresPerCoordinateInputTime_),
+          strongRef_(other.strongRef_
+                         ? std::make_unique<CRSStrongRef>(*(other.strongRef_))
+                         : nullptr) {}
 
     Private &operator=(const Private &) = delete;
 };

@@ -26,42 +26,33 @@
  * DEALINGS IN THE SOFTWARE.
  *****************************************************************************/
 
-#define PJ_LIB__
 #include "proj.h"
-#include <errno.h>
 #include "proj_internal.h"
+#include <errno.h>
 
 PROJ_HEAD(airy, "Airy") "\n\tMisc Sph, no inv\n\tno_cut lat_b=";
 
-
 namespace { // anonymous namespace
-enum Mode {
-    N_POLE = 0,
-    S_POLE = 1,
-    EQUIT  = 2,
-    OBLIQ  = 3
-};
+enum Mode { N_POLE = 0, S_POLE = 1, EQUIT = 2, OBLIQ = 3 };
 } // anonymous namespace
 
 namespace { // anonymous namespace
-struct pj_opaque {
-    double  p_halfpi;
-    double  sinph0;
-    double  cosph0;
-    double  Cb;
+struct pj_airy {
+    double p_halfpi;
+    double sinph0;
+    double cosph0;
+    double Cb;
     enum Mode mode;
-    int     no_cut; /* do not cut at hemisphere limit */
+    int no_cut; /* do not cut at hemisphere limit */
 };
 } // anonymous namespace
 
+#define EPS 1.e-10
 
-# define EPS 1.e-10
-
-
-static PJ_XY airy_s_forward (PJ_LP lp, PJ *P) {           /* Spheroidal, forward */
-    PJ_XY xy = {0.0,0.0};
-    struct pj_opaque *Q = static_cast<struct pj_opaque*>(P->opaque);
-    double  sinlam, coslam, cosphi, sinphi, t, s, Krho, cosz;
+static PJ_XY airy_s_forward(PJ_LP lp, PJ *P) { /* Spheroidal, forward */
+    PJ_XY xy = {0.0, 0.0};
+    struct pj_airy *Q = static_cast<struct pj_airy *>(P->opaque);
+    double sinlam, coslam, cosphi, sinphi, t, s, Krho, cosz;
 
     sinlam = sin(lp.lam);
     coslam = cos(lp.lam);
@@ -80,11 +71,12 @@ static PJ_XY airy_s_forward (PJ_LP lp, PJ *P) {           /* Spheroidal, forward
         s = 1. - cosz;
         if (fabs(s) > EPS) {
             t = 0.5 * (1. + cosz);
-            if(t == 0) {
-                proj_errno_set(P, PROJ_ERR_COORD_TRANSFM_OUTSIDE_PROJECTION_DOMAIN);
+            if (t == 0) {
+                proj_errno_set(
+                    P, PROJ_ERR_COORD_TRANSFM_OUTSIDE_PROJECTION_DOMAIN);
                 return xy;
             }
-            Krho = -log(t)/s - Q->Cb / t;
+            Krho = -log(t) / s - Q->Cb / t;
         } else
             Krho = 0.5 - Q->Cb;
         xy.x = Krho * cosphi * sinlam;
@@ -103,7 +95,7 @@ static PJ_XY airy_s_forward (PJ_LP lp, PJ *P) {           /* Spheroidal, forward
         lp.phi *= 0.5;
         if (lp.phi > EPS) {
             t = tan(lp.phi);
-            Krho = -2.*(log(cos(lp.phi)) / t + t * Q->Cb);
+            Krho = -2. * (log(cos(lp.phi)) / t + t * Q->Cb);
             xy.x = Krho * sinlam;
             xy.y = Krho * coslam;
             if (Q->mode == N_POLE)
@@ -114,15 +106,13 @@ static PJ_XY airy_s_forward (PJ_LP lp, PJ *P) {           /* Spheroidal, forward
     return xy;
 }
 
-
-
-
-PJ *PROJECTION(airy) {
+PJ *PJ_PROJECTION(airy) {
     double beta;
 
-    struct pj_opaque *Q = static_cast<struct pj_opaque*>(calloc (1, sizeof (struct pj_opaque)));
-    if (nullptr==Q)
-        return pj_default_destructor (P, PROJ_ERR_OTHER /*ENOMEM*/);
+    struct pj_airy *Q =
+        static_cast<struct pj_airy *>(calloc(1, sizeof(struct pj_airy)));
+    if (nullptr == Q)
+        return pj_default_destructor(P, PROJ_ERR_OTHER /*ENOMEM*/);
 
     P->opaque = Q;
 
@@ -131,7 +121,7 @@ PJ *PROJECTION(airy) {
     if (fabs(beta) < EPS)
         Q->Cb = -0.5;
     else {
-        Q->Cb = 1./tan(beta);
+        Q->Cb = 1. / tan(beta);
         Q->Cb *= Q->Cb * log(cos(beta));
     }
 
@@ -140,7 +130,7 @@ PJ *PROJECTION(airy) {
             Q->p_halfpi = -M_HALFPI;
             Q->mode = S_POLE;
         } else {
-            Q->p_halfpi =  M_HALFPI;
+            Q->p_halfpi = M_HALFPI;
             Q->mode = N_POLE;
         }
     else {
@@ -157,4 +147,4 @@ PJ *PROJECTION(airy) {
     return P;
 }
 
-
+#undef EPS

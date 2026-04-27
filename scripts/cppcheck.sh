@@ -17,11 +17,22 @@ esac
 
 TOPDIR="$SCRIPT_DIR/.."
 
+CPPCHECK_VERSION="$(cppcheck --version | awk '{print $2}')"
+CPPCHECK_MAJOR_VERSION=$(echo "$CPPCHECK_VERSION" | cut -d. -f1)
+CPPCHECK_MINOR_VERSION=$(echo "$CPPCHECK_VERSION" | cut -d. -f2)
+CPPCHECK_VERSION=$(("$CPPCHECK_MAJOR_VERSION" * 100 + "$CPPCHECK_MINOR_VERSION"))
+CPPCHECK_VERSION_GT_2_7=$(expr "$CPPCHECK_VERSION" \>= 207 || /bin/true)
+if test "$CPPCHECK_VERSION_GT_2_7" = 1; then
+    POSIX="--library=posix"
+else
+    POSIX="--std=posix"
+fi
+
 echo "" > ${LOG_FILE}
 for dirname in ${TOPDIR}/src; do
     echo "Running cppcheck on $dirname... (can be long)"
     if ! cppcheck --inline-suppr --template='{file}:{line},{severity},{id},{message}' \
-        --enable=all --inconclusive --std=posix \
+        --enable=all --inconclusive "$POSIX" \
         -DCPPCHECK -D__cplusplus=201103L -DNAN \
         -I${TOPDIR}/src -I${TOPDIR}/include \
         "$dirname" \
@@ -47,6 +58,12 @@ grep -v "unmatchedSuppression" ${LOG_FILE} \
     | grep -v -e "helmert.*unreadVariable,Variable 'point.*' is assigned a value that is never used" \
     | grep -v -e "molodensky.*unreadVariable,Variable 'point.*' is assigned a value that is never used" \
     | grep -v -e "vgridshift.*unreadVariable,Variable 'point.*' is assigned a value that is never used" \
+    | grep -v -e "defines member function with name.*also defined in its parent" \
+    | grep -v "passedByValueCallback,Function parameter 'lpz' should be passed by const reference" \
+    | grep -v "passedByValueCallback,Function parameter 'xyz' should be passed by const reference" \
+    | grep -v "passedByValueCallback,Function parameter 'geod' should be passed by const reference" \
+    | grep -v "passedByValueCallback,Function parameter 'cart' should be passed by const reference" \
+    | grep -v "passedByValueCallback,Function parameter 'in' should be passed by const reference" \
     > ${LOG_FILE}.tmp
 mv ${LOG_FILE}.tmp ${LOG_FILE}
 

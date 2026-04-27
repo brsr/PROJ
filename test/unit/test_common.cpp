@@ -33,6 +33,8 @@
 #include "proj/metadata.hpp"
 #include "proj/util.hpp"
 
+#include <limits>
+
 using namespace osgeo::proj::common;
 using namespace osgeo::proj::metadata;
 using namespace osgeo::proj::operation;
@@ -65,11 +67,37 @@ TEST(common, unit_of_measure) {
     EXPECT_EQ(Angle(2.5969213, UnitOfMeasure::GRAD)
                   .convertToUnit(UnitOfMeasure::DEGREE),
               2.5969213 / 100.0 * 90.0);
+
+    {
+        UnitOfMeasure myUOM("myUOM", 123);
+        UnitOfMeasure myUOM_copy;
+        myUOM_copy = myUOM;
+        EXPECT_TRUE(myUOM == myUOM_copy);
+        UnitOfMeasure otherUOM("otherUOM", 456);
+        otherUOM = std::move(myUOM);
+        EXPECT_TRUE(otherUOM == myUOM_copy);
+    }
 }
 
 // ---------------------------------------------------------------------------
 
-TEST(common, measure) { EXPECT_TRUE(Measure(1.0) == Measure(1.0)); }
+TEST(common, measure) {
+    EXPECT_TRUE(Measure(0.0) == Measure(0.0));
+    EXPECT_TRUE(Measure(1.0) == Measure(1.0));
+    EXPECT_FALSE(Measure(1.0) == Measure(2.0));
+    EXPECT_FALSE(Measure(1.0) == Measure(0.0));
+    EXPECT_FALSE(Measure(0.0) == Measure(1.0));
+    EXPECT_TRUE(Measure(std::numeric_limits<double>::infinity()) ==
+                Measure(std::numeric_limits<double>::infinity()));
+    EXPECT_TRUE(Measure(-std::numeric_limits<double>::infinity()) ==
+                Measure(-std::numeric_limits<double>::infinity()));
+    EXPECT_FALSE(Measure(std::numeric_limits<double>::infinity()) ==
+                 Measure(-std::numeric_limits<double>::infinity()));
+    EXPECT_FALSE(Measure(std::numeric_limits<double>::infinity()) ==
+                 Measure(1.0));
+    EXPECT_FALSE(Measure(1.0) ==
+                 Measure(std::numeric_limits<double>::infinity()));
+}
 
 // ---------------------------------------------------------------------------
 

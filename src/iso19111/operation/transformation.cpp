@@ -91,7 +91,7 @@ Transformation::Transformation(
     const crs::CRSPtr &interpolationCRSIn, const OperationMethodNNPtr &methodIn,
     const std::vector<GeneralParameterValueNNPtr> &values,
     const std::vector<metadata::PositionalAccuracyNNPtr> &accuracies)
-    : SingleOperation(methodIn), d(internal::make_unique<Private>()) {
+    : SingleOperation(methodIn), d(std::make_unique<Private>()) {
     setParameterValues(values);
     setCRSs(sourceCRSIn, targetCRSIn, interpolationCRSIn);
     setAccuracies(accuracies);
@@ -107,7 +107,7 @@ Transformation::~Transformation() = default;
 
 Transformation::Transformation(const Transformation &other)
     : CoordinateOperation(other), SingleOperation(other),
-      d(internal::make_unique<Private>(*other.d)) {}
+      d(std::make_unique<Private>(*other.d)) {}
 
 // ---------------------------------------------------------------------------
 
@@ -184,12 +184,15 @@ Transformation::demoteTo2D(const std::string &,
  * can be used as the value of the WKT1 TOWGS84 parameter or
  * PROJ +towgs84 parameter.
  *
+ * @param canThrowException if true, an exception is thrown if the method fails,
+ * otherwise an empty vector is returned in case of failure.
  * @return a vector of 7 values if valid, otherwise a io::FormattingException
  * is thrown.
- * @throws io::FormattingException
+ * @throws io::FormattingException in case of error, if canThrowException is
+ * true
  */
-std::vector<double>
-Transformation::getTOWGS84Parameters() const // throw(io::FormattingException)
+std::vector<double> Transformation::getTOWGS84Parameters(
+    bool canThrowException) const // throw(io::FormattingException)
 {
     // GDAL WKT1 assumes EPSG:9606 / Position Vector convention
 
@@ -203,8 +206,16 @@ Transformation::getTOWGS84Parameters() const // throw(io::FormattingException)
     if ((paramCount == 7 &&
          ci_find(methodName, "Coordinate Frame") != std::string::npos) ||
         methodEPSGCode == EPSG_CODE_METHOD_COORDINATE_FRAME_GEOCENTRIC ||
+        methodEPSGCode ==
+            EPSG_CODE_METHOD_COORDINATE_FRAME_FULL_MATRIX_GEOCENTRIC ||
         methodEPSGCode == EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_2D ||
-        methodEPSGCode == EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_3D) {
+        methodEPSGCode ==
+            EPSG_CODE_METHOD_COORDINATE_FRAME_FULL_MATRIX_GEOGRAPHIC_2D ||
+        methodEPSGCode ==
+            EPSG_CODE_METHOD_COORDINATE_FRAME_FULL_MATRIX_GEOGRAPHIC_3D ||
+        methodEPSGCode == EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_3D ||
+        methodEPSGCode ==
+            EPSG_CODE_METHOD_COORDINATE_FRAME_GEOG3D_TO_COMPOUND) {
         sevenParamsTransform = true;
         invertRotSigns = true;
     } else if ((paramCount == 7 &&
@@ -297,6 +308,8 @@ Transformation::getTOWGS84Parameters() const // throw(io::FormattingException)
              (foundRotX && foundRotY && foundRotZ && foundScale))) {
             return params;
         } else {
+            if (!canThrowException)
+                return {};
             throw io::FormattingException(
                 "Missing required parameter values in transformation");
         }
@@ -321,6 +334,8 @@ Transformation::getTOWGS84Parameters() const // throw(io::FormattingException)
     }
 #endif
 
+    if (!canThrowException)
+        return {};
     throw io::FormattingException(
         "Transformation cannot be formatted as WKT1 TOWGS84 parameters");
 }
@@ -339,7 +354,7 @@ Transformation::getTOWGS84Parameters() const // throw(io::FormattingException)
  * @param values Vector of GeneralOperationParameterNNPtr.
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr Transformation::create(
     const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
@@ -382,7 +397,7 @@ TransformationNNPtr Transformation::create(
  * values.size() == parameters.size()
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr
 Transformation::create(const util::PropertyMap &propertiesTransformation,
@@ -474,13 +489,16 @@ static void getTransformationType(const crs::CRSNNPtr &sourceCRSIn,
         dynamic_cast<const crs::GeographicCRS *>(sourceCRSIn.get());
     auto targetCRSGeog =
         dynamic_cast<const crs::GeographicCRS *>(targetCRSIn.get());
-    if (!sourceCRSGeog || !targetCRSGeog) {
+    if (!(sourceCRSGeog ||
+          (sourceCRSGeod && sourceCRSGeod->isSphericalPlanetocentric())) ||
+        !(targetCRSGeog ||
+          (targetCRSGeod && targetCRSGeod->isSphericalPlanetocentric()))) {
         throw InvalidOperation("Inconsistent CRS type");
     }
     const auto nSrcAxisCount =
-        sourceCRSGeog->coordinateSystem()->axisList().size();
+        sourceCRSGeod->coordinateSystem()->axisList().size();
     const auto nTargetAxisCount =
-        targetCRSGeog->coordinateSystem()->axisList().size();
+        targetCRSGeod->coordinateSystem()->axisList().size();
     isGeog2D = nSrcAxisCount == 2 && nTargetAxisCount == 2;
     isGeog3D = !isGeog2D && nSrcAxisCount >= 2 && nTargetAxisCount >= 2;
 }
@@ -532,11 +550,10 @@ TransformationNNPtr Transformation::createGeocentricTranslations(
         properties, sourceCRSIn, targetCRSIn, nullptr,
         createMethodMapNameEPSGCode(useOperationMethodEPSGCodeIfPresent(
             properties,
-            isGeocentric
-                ? EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_GEOCENTRIC
-                : isGeog2D
-                      ? EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_GEOGRAPHIC_2D
-                      : EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_GEOGRAPHIC_3D)),
+            isGeocentric ? EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_GEOCENTRIC
+            : isGeog2D
+                ? EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_GEOGRAPHIC_2D
+                : EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_GEOGRAPHIC_3D)),
         VectorOfParameters{
             createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_X_AXIS_TRANSLATION),
             createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_Y_AXIS_TRANSLATION),
@@ -591,10 +608,9 @@ TransformationNNPtr Transformation::createPositionVector(
         properties,
         createMethodMapNameEPSGCode(useOperationMethodEPSGCodeIfPresent(
             properties,
-            isGeocentric
-                ? EPSG_CODE_METHOD_POSITION_VECTOR_GEOCENTRIC
-                : isGeog2D ? EPSG_CODE_METHOD_POSITION_VECTOR_GEOGRAPHIC_2D
-                           : EPSG_CODE_METHOD_POSITION_VECTOR_GEOGRAPHIC_3D)),
+            isGeocentric ? EPSG_CODE_METHOD_POSITION_VECTOR_GEOCENTRIC
+            : isGeog2D   ? EPSG_CODE_METHOD_POSITION_VECTOR_GEOGRAPHIC_2D
+                         : EPSG_CODE_METHOD_POSITION_VECTOR_GEOGRAPHIC_3D)),
         sourceCRSIn, targetCRSIn, translationXMetre, translationYMetre,
         translationZMetre, rotationXArcSecond, rotationYArcSecond,
         rotationZArcSecond, scaleDifferencePPM, accuracies);
@@ -641,10 +657,9 @@ TransformationNNPtr Transformation::createCoordinateFrameRotation(
         properties,
         createMethodMapNameEPSGCode(useOperationMethodEPSGCodeIfPresent(
             properties,
-            isGeocentric
-                ? EPSG_CODE_METHOD_COORDINATE_FRAME_GEOCENTRIC
-                : isGeog2D ? EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_2D
-                           : EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_3D)),
+            isGeocentric ? EPSG_CODE_METHOD_COORDINATE_FRAME_GEOCENTRIC
+            : isGeog2D   ? EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_2D
+                         : EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_3D)),
         sourceCRSIn, targetCRSIn, translationXMetre, translationYMetre,
         translationZMetre, rotationXArcSecond, rotationYArcSecond,
         rotationZArcSecond, scaleDifferencePPM, accuracies);
@@ -730,8 +745,9 @@ static TransformationNNPtr createFifteenParamsTransform(
  * the sign of
  * the rotation terms is inverted.
  *
- * This method is defined as [EPSG:1053]
- * (https://www.epsg-registry.org/export.htm?gml=urn:ogc:def:method:EPSG::1053)
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_1053/index.html">
+ * EPSG:1053</a>.
  *
  * @param properties See \ref general_properties of the Transformation.
  * At minimum the name should be defined.
@@ -787,9 +803,9 @@ TransformationNNPtr Transformation::createTimeDependentPositionVector(
             properties,
             isGeocentric
                 ? EPSG_CODE_METHOD_TIME_DEPENDENT_POSITION_VECTOR_GEOCENTRIC
-                : isGeog2D
-                      ? EPSG_CODE_METHOD_TIME_DEPENDENT_POSITION_VECTOR_GEOGRAPHIC_2D
-                      : EPSG_CODE_METHOD_TIME_DEPENDENT_POSITION_VECTOR_GEOGRAPHIC_3D)),
+            : isGeog2D
+                ? EPSG_CODE_METHOD_TIME_DEPENDENT_POSITION_VECTOR_GEOGRAPHIC_2D
+                : EPSG_CODE_METHOD_TIME_DEPENDENT_POSITION_VECTOR_GEOGRAPHIC_3D)),
         sourceCRSIn, targetCRSIn, translationXMetre, translationYMetre,
         translationZMetre, rotationXArcSecond, rotationYArcSecond,
         rotationZArcSecond, scaleDifferencePPM, rateTranslationX,
@@ -806,8 +822,9 @@ TransformationNNPtr Transformation::createTimeDependentPositionVector(
  * of
  * the rotation terms is inverted.
  *
- * This method is defined as [EPSG:1056]
- * (https://www.epsg-registry.org/export.htm?gml=urn:ogc:def:method:EPSG::1056)
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_1056/index.html">
+ * EPSG:1056</a>.
  *
  * @param properties See \ref general_properties of the Transformation.
  * At minimum the name should be defined.
@@ -841,7 +858,7 @@ TransformationNNPtr Transformation::createTimeDependentPositionVector(
  * @param referenceEpochYear Parameter reference epoch (in decimal year)
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr Transformation::createTimeDependentCoordinateFrameRotation(
     const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
@@ -865,9 +882,9 @@ TransformationNNPtr Transformation::createTimeDependentCoordinateFrameRotation(
             properties,
             isGeocentric
                 ? EPSG_CODE_METHOD_TIME_DEPENDENT_COORDINATE_FRAME_GEOCENTRIC
-                : isGeog2D
-                      ? EPSG_CODE_METHOD_TIME_DEPENDENT_COORDINATE_FRAME_GEOGRAPHIC_2D
-                      : EPSG_CODE_METHOD_TIME_DEPENDENT_COORDINATE_FRAME_GEOGRAPHIC_3D)),
+            : isGeog2D
+                ? EPSG_CODE_METHOD_TIME_DEPENDENT_COORDINATE_FRAME_GEOGRAPHIC_2D
+                : EPSG_CODE_METHOD_TIME_DEPENDENT_COORDINATE_FRAME_GEOGRAPHIC_3D)),
         sourceCRSIn, targetCRSIn, translationXMetre, translationYMetre,
         translationZMetre, rotationXArcSecond, rotationYArcSecond,
         rotationZArcSecond, scaleDifferencePPM, rateTranslationX,
@@ -913,8 +930,9 @@ static TransformationNNPtr _createMolodensky(
  *
  * @see createAbridgedMolodensky() for a related method.
  *
- * This method is defined as [EPSG:9604]
- * (https://www.epsg-registry.org/export.htm?gml=urn:ogc:def:method:EPSG::9604)
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_9604/index.html">
+ * EPSG:9604</a>.
  *
  * @param properties See \ref general_properties of the Transformation.
  * At minimum the name should be defined.
@@ -929,7 +947,7 @@ static TransformationNNPtr _createMolodensky(
  * the ellipsoids used in the target and source CRS.
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr Transformation::createMolodensky(
     const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
@@ -949,8 +967,9 @@ TransformationNNPtr Transformation::createMolodensky(
  *
  * @see createdMolodensky() for a related method.
  *
- * This method is defined as [EPSG:9605]
- * (https://www.epsg-registry.org/export.htm?gml=urn:ogc:def:method:EPSG::9605)
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_9605/index.html">
+ * EPSG:9605</a>.
  *
  * @param properties See \ref general_properties of the Transformation.
  * At minimum the name should be defined.
@@ -965,7 +984,7 @@ TransformationNNPtr Transformation::createMolodensky(
  * the ellipsoids used in the target and source CRS.
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr Transformation::createAbridgedMolodensky(
     const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
@@ -992,7 +1011,7 @@ TransformationNNPtr Transformation::createAbridgedMolodensky(
  * or 7 double values (Translation_X,_Y,_Z, Rotation_X,_Y,_Z, Scale_Difference)
  * passed to createPositionVector()
  * @return new Transformation.
- * @throws InvalidOperation
+ * @throws InvalidOperation if the object cannot be constructed.
  */
 TransformationNNPtr Transformation::createTOWGS84(
     const crs::CRSNNPtr &sourceCRSIn,
@@ -1003,36 +1022,36 @@ TransformationNNPtr Transformation::createTOWGS84(
             "Invalid number of elements in TOWGS84Parameters");
     }
 
-    crs::CRSPtr transformSourceCRS = sourceCRSIn->extractGeodeticCRS();
-    if (!transformSourceCRS) {
+    auto transformSourceGeodCRS = sourceCRSIn->extractGeodeticCRS();
+    if (!transformSourceGeodCRS) {
         throw InvalidOperation(
             "Cannot find GeodeticCRS in sourceCRS of TOWGS84 transformation");
     }
 
     util::PropertyMap properties;
     properties.set(common::IdentifiedObject::NAME_KEY,
-                   concat("Transformation from ", transformSourceCRS->nameStr(),
-                          " to WGS84"));
+                   concat("Transformation from ",
+                          transformSourceGeodCRS->nameStr(), " to WGS84"));
 
-    auto targetCRS =
-        dynamic_cast<const crs::GeographicCRS *>(transformSourceCRS.get())
-            ? util::nn_static_pointer_cast<crs::CRS>(
-                  crs::GeographicCRS::EPSG_4326)
-            : util::nn_static_pointer_cast<crs::CRS>(
-                  crs::GeodeticCRS::EPSG_4978);
+    auto targetCRS = dynamic_cast<const crs::GeographicCRS *>(
+                         transformSourceGeodCRS.get()) ||
+                             transformSourceGeodCRS->isSphericalPlanetocentric()
+                         ? util::nn_static_pointer_cast<crs::CRS>(
+                               crs::GeographicCRS::EPSG_4326)
+                         : util::nn_static_pointer_cast<crs::CRS>(
+                               crs::GeodeticCRS::EPSG_4978);
 
+    crs::CRSNNPtr transformSourceCRS = NN_NO_CHECK(transformSourceGeodCRS);
     if (TOWGS84Parameters.size() == 3) {
         return createGeocentricTranslations(
-            properties, NN_NO_CHECK(transformSourceCRS), targetCRS,
-            TOWGS84Parameters[0], TOWGS84Parameters[1], TOWGS84Parameters[2],
-            {});
+            properties, transformSourceCRS, targetCRS, TOWGS84Parameters[0],
+            TOWGS84Parameters[1], TOWGS84Parameters[2], {});
     }
 
-    return createPositionVector(properties, NN_NO_CHECK(transformSourceCRS),
-                                targetCRS, TOWGS84Parameters[0],
-                                TOWGS84Parameters[1], TOWGS84Parameters[2],
-                                TOWGS84Parameters[3], TOWGS84Parameters[4],
-                                TOWGS84Parameters[5], TOWGS84Parameters[6], {});
+    return createPositionVector(
+        properties, transformSourceCRS, targetCRS, TOWGS84Parameters[0],
+        TOWGS84Parameters[1], TOWGS84Parameters[2], TOWGS84Parameters[3],
+        TOWGS84Parameters[4], TOWGS84Parameters[5], TOWGS84Parameters[6], {});
 }
 
 // ---------------------------------------------------------------------------
@@ -1144,9 +1163,10 @@ buildAccuracyZero() {
 
 /** \brief Instantiate a transformation with method Longitude rotation
  *
- * This method is defined as [EPSG:9601]
- * (https://www.epsg-registry.org/export.htm?gml=urn:ogc:def:method:EPSG::9601)
- * *
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_9601/index.html">
+ * EPSG:9601</a>.
+ *
  * @param properties See \ref general_properties of the Transformation.
  * At minimum the name should be defined.
  * @param sourceCRSIn Source CRS.
@@ -1168,33 +1188,25 @@ TransformationNNPtr Transformation::createLongitudeRotation(
 
 // ---------------------------------------------------------------------------
 
-//! @cond Doxygen_Suppress
-bool Transformation::isLongitudeRotation() const {
-    return method()->getEPSGCode() == EPSG_CODE_METHOD_LONGITUDE_ROTATION;
-}
-
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
 /** \brief Instantiate a transformation with method Geographic 2D offsets
  *
- * This method is defined as [EPSG:9619]
- * (https://www.epsg-registry.org/export.htm?gml=urn:ogc:def:method:EPSG::9619)
- * *
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_9619/index.html">
+ * EPSG:9619</a>.
+ *
  * @param properties See \ref general_properties of the Transformation.
  * At minimum the name should be defined.
  * @param sourceCRSIn Source CRS.
  * @param targetCRSIn Target CRS.
  * @param offsetLat Latitude offset to add.
- * @param offsetLon Longitude offset to add.
+ * @param offsetLong Longitude offset to add.
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
  */
 TransformationNNPtr Transformation::createGeographic2DOffsets(
     const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
     const crs::CRSNNPtr &targetCRSIn, const common::Angle &offsetLat,
-    const common::Angle &offsetLon,
+    const common::Angle &offsetLong,
     const std::vector<metadata::PositionalAccuracyNNPtr> &accuracies) {
     return create(
         properties, sourceCRSIn, targetCRSIn, nullptr,
@@ -1202,22 +1214,23 @@ TransformationNNPtr Transformation::createGeographic2DOffsets(
         VectorOfParameters{
             createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_LATITUDE_OFFSET),
             createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET)},
-        VectorOfValues{offsetLat, offsetLon}, accuracies);
+        VectorOfValues{offsetLat, offsetLong}, accuracies);
 }
 
 // ---------------------------------------------------------------------------
 
 /** \brief Instantiate a transformation with method Geographic 3D offsets
  *
- * This method is defined as [EPSG:9660]
- * (https://www.epsg-registry.org/export.htm?gml=urn:ogc:def:method:EPSG::9660)
- * *
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_9660/index.html">
+ * EPSG:9660</a>.
+ *
  * @param properties See \ref general_properties of the Transformation.
  * At minimum the name should be defined.
  * @param sourceCRSIn Source CRS.
  * @param targetCRSIn Target CRS.
  * @param offsetLat Latitude offset to add.
- * @param offsetLon Longitude offset to add.
+ * @param offsetLong Longitude offset to add.
  * @param offsetHeight Height offset to add.
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
@@ -1225,7 +1238,7 @@ TransformationNNPtr Transformation::createGeographic2DOffsets(
 TransformationNNPtr Transformation::createGeographic3DOffsets(
     const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
     const crs::CRSNNPtr &targetCRSIn, const common::Angle &offsetLat,
-    const common::Angle &offsetLon, const common::Length &offsetHeight,
+    const common::Angle &offsetLong, const common::Length &offsetHeight,
     const std::vector<metadata::PositionalAccuracyNNPtr> &accuracies) {
     return create(
         properties, sourceCRSIn, targetCRSIn, nullptr,
@@ -1234,7 +1247,7 @@ TransformationNNPtr Transformation::createGeographic3DOffsets(
             createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_LATITUDE_OFFSET),
             createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET),
             createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_VERTICAL_OFFSET)},
-        VectorOfValues{offsetLat, offsetLon, offsetHeight}, accuracies);
+        VectorOfValues{offsetLat, offsetLong, offsetHeight}, accuracies);
 }
 
 // ---------------------------------------------------------------------------
@@ -1243,15 +1256,16 @@ TransformationNNPtr Transformation::createGeographic3DOffsets(
  * height
  * offsets
  *
- * This method is defined as [EPSG:9618]
- * (https://www.epsg-registry.org/export.htm?gml=urn:ogc:def:method:EPSG::9618)
- * *
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_9618/index.html">
+ * EPSG:9618</a>.
+ *
  * @param properties See \ref general_properties of the Transformation.
  * At minimum the name should be defined.
  * @param sourceCRSIn Source CRS.
  * @param targetCRSIn Target CRS.
  * @param offsetLat Latitude offset to add.
- * @param offsetLon Longitude offset to add.
+ * @param offsetLong Longitude offset to add.
  * @param offsetHeight Geoid undulation to add.
  * @param accuracies Vector of positional accuracy (might be empty).
  * @return new Transformation.
@@ -1259,7 +1273,7 @@ TransformationNNPtr Transformation::createGeographic3DOffsets(
 TransformationNNPtr Transformation::createGeographic2DWithHeightOffsets(
     const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
     const crs::CRSNNPtr &targetCRSIn, const common::Angle &offsetLat,
-    const common::Angle &offsetLon, const common::Length &offsetHeight,
+    const common::Angle &offsetLong, const common::Length &offsetHeight,
     const std::vector<metadata::PositionalAccuracyNNPtr> &accuracies) {
     return create(
         properties, sourceCRSIn, targetCRSIn, nullptr,
@@ -1268,17 +1282,50 @@ TransformationNNPtr Transformation::createGeographic2DWithHeightOffsets(
         VectorOfParameters{
             createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_LATITUDE_OFFSET),
             createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET),
-            createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_GEOID_UNDULATION)},
-        VectorOfValues{offsetLat, offsetLon, offsetHeight}, accuracies);
+            createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_GEOID_HEIGHT)},
+        VectorOfValues{offsetLat, offsetLong, offsetHeight}, accuracies);
+}
+
+// ---------------------------------------------------------------------------
+
+/** \brief Instantiate a transformation with method Cartesian grid offsets
+ *
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_9656/index.html">
+ * EPSG:9656</a>.
+ *
+ * @param properties See \ref general_properties of the Transformation.
+ * At minimum the name should be defined.
+ * @param sourceCRSIn Source CRS.
+ * @param targetCRSIn Target CRS.
+ * @param eastingOffset Easting offset to add.
+ * @param northingOffset Northing offset to add.
+ * @param accuracies Vector of positional accuracy (might be empty).
+ * @return new Transformation.
+ * @since PROJ 9.5.0
+ */
+TransformationNNPtr Transformation::createCartesianGridOffsets(
+    const util::PropertyMap &properties, const crs::CRSNNPtr &sourceCRSIn,
+    const crs::CRSNNPtr &targetCRSIn, const common::Length &eastingOffset,
+    const common::Length &northingOffset,
+    const std::vector<metadata::PositionalAccuracyNNPtr> &accuracies) {
+    return create(
+        properties, sourceCRSIn, targetCRSIn, nullptr,
+        createMethodMapNameEPSGCode(EPSG_CODE_METHOD_CARTESIAN_GRID_OFFSETS),
+        VectorOfParameters{
+            createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_EASTING_OFFSET),
+            createOpParamNameEPSGCode(EPSG_CODE_PARAMETER_NORTHING_OFFSET)},
+        VectorOfValues{eastingOffset, northingOffset}, accuracies);
 }
 
 // ---------------------------------------------------------------------------
 
 /** \brief Instantiate a transformation with method Vertical Offset.
  *
- * This method is defined as [EPSG:9616]
- * (https://www.epsg-registry.org/export.htm?gml=urn:ogc:def:method:EPSG::9616)
- * *
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_9616/index.html">
+ * EPSG:9616</a>.
+ *
  * @param properties See \ref general_properties of the Transformation.
  * At minimum the name should be defined.
  * @param sourceCRSIn Source CRS.
@@ -1303,8 +1350,9 @@ TransformationNNPtr Transformation::createVerticalOffset(
 /** \brief Instantiate a transformation based on the Change of Vertical Unit
  * method.
  *
- * This method is defined as [EPSG:1069]
- * (https://www.epsg-registry.org/export.htm?gml=urn:ogc:def:method:EPSG::1069)
+ * This method is defined as
+ * <a href="https://epsg.org/coord-operation-method_1069/index.html">
+ * EPSG:1069</a> [DEPRECATED].
  *
  * @param properties See \ref general_properties of the conversion. If the name
  * is not provided, it is automatically set.
@@ -1367,8 +1415,16 @@ createApproximateInverseIfPossible(const Transformation *op) {
     if ((paramCount == 7 && isCoordinateFrame &&
          !isTimeDependent(methodName)) ||
         methodEPSGCode == EPSG_CODE_METHOD_COORDINATE_FRAME_GEOCENTRIC ||
+        methodEPSGCode ==
+            EPSG_CODE_METHOD_COORDINATE_FRAME_FULL_MATRIX_GEOCENTRIC ||
         methodEPSGCode == EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_2D ||
-        methodEPSGCode == EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_3D) {
+        methodEPSGCode ==
+            EPSG_CODE_METHOD_COORDINATE_FRAME_FULL_MATRIX_GEOGRAPHIC_2D ||
+        methodEPSGCode ==
+            EPSG_CODE_METHOD_COORDINATE_FRAME_FULL_MATRIX_GEOGRAPHIC_3D ||
+        methodEPSGCode == EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_3D ||
+        methodEPSGCode ==
+            EPSG_CODE_METHOD_COORDINATE_FRAME_GEOG3D_TO_COMPOUND) {
         sevenParamsTransform = true;
     } else if (
         (paramCount == 15 && isCoordinateFrame &&
@@ -1426,6 +1482,8 @@ createApproximateInverseIfPossible(const Transformation *op) {
                      metadata::Identifier::EPSG)
                 .set(metadata::Identifier::CODE_KEY, method_epsg_code);
         }
+        bool exactInverse =
+            (neg_rx == 0 && neg_ry == 0 && neg_rz == 0 && neg_scaleDiff == 0);
         if (fifteenParamsTransform) {
             double neg_rate_x = negate(op->parameterValueNumeric(
                 EPSG_CODE_PARAMETER_RATE_X_AXIS_TRANSLATION,
@@ -1451,9 +1509,11 @@ createApproximateInverseIfPossible(const Transformation *op) {
             double referenceEpochYear =
                 op->parameterValueNumeric(EPSG_CODE_PARAMETER_REFERENCE_EPOCH,
                                           common::UnitOfMeasure::YEAR);
+            exactInverse &= (neg_rate_rx == 0 && neg_rate_ry == 0 &&
+                             neg_rate_rz == 0 && neg_rate_scaleDiff == 0);
             return util::nn_static_pointer_cast<CoordinateOperation>(
                        createFifteenParamsTransform(
-                           createPropertiesForInverse(op, false, true),
+                           createPropertiesForInverse(op, false, !exactInverse),
                            methodProperties, op->targetCRS(), op->sourceCRS(),
                            neg_x, neg_y, neg_z, neg_rx, neg_ry, neg_rz,
                            neg_scaleDiff, neg_rate_x, neg_rate_y, neg_rate_z,
@@ -1464,7 +1524,7 @@ createApproximateInverseIfPossible(const Transformation *op) {
         } else {
             return util::nn_static_pointer_cast<CoordinateOperation>(
                        createSevenParamsTransform(
-                           createPropertiesForInverse(op, false, true),
+                           createPropertiesForInverse(op, false, !exactInverse),
                            methodProperties, op->targetCRS(), op->sourceCRS(),
                            neg_x, neg_y, neg_z, neg_rx, neg_ry, neg_rz,
                            neg_scaleDiff, op->coordinateOperationAccuracies()))
@@ -1474,7 +1534,6 @@ createApproximateInverseIfPossible(const Transformation *op) {
 
     return nullptr;
 }
-//! @endcond
 
 // ---------------------------------------------------------------------------
 
@@ -1485,6 +1544,8 @@ Transformation::Private::registerInv(const Transformation *thisIn,
     invTransform->d->forwardOperation_ = thisIn->shallowClone().as_nullable();
     invTransform->setHasBallparkTransformation(
         thisIn->hasBallparkTransformation());
+    invTransform->setRequiresPerCoordinateInputTime(
+        thisIn->requiresPerCoordinateInputTime());
     return invTransform;
 }
 //! @endcond
@@ -1510,7 +1571,8 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
 
     // For geocentric translation, the inverse is exactly the negation of
     // the parameters.
-    if (ci_find(methodName, "Geocentric translations") != std::string::npos ||
+    if ((ci_find(methodName, "Geocentric translations") != std::string::npos &&
+         ci_find(methodName, "grid") == std::string::npos) ||
         methodEPSGCode == EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_GEOCENTRIC ||
         methodEPSGCode ==
             EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_GEOGRAPHIC_2D ||
@@ -1573,7 +1635,7 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
     }
 
     if (isLongitudeRotation()) {
-        auto offset =
+        const auto &offset =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET);
         const common::Angle newOffset(negate(offset.value()), offset.unit());
         return Private::registerInv(
@@ -1583,12 +1645,12 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
     }
 
     if (methodEPSGCode == EPSG_CODE_METHOD_GEOGRAPHIC2D_OFFSETS) {
-        auto offsetLat =
+        const auto &offsetLat =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LATITUDE_OFFSET);
         const common::Angle newOffsetLat(negate(offsetLat.value()),
                                          offsetLat.unit());
 
-        auto offsetLong =
+        const auto &offsetLong =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET);
         const common::Angle newOffsetLong(negate(offsetLong.value()),
                                           offsetLong.unit());
@@ -1601,17 +1663,17 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
     }
 
     if (methodEPSGCode == EPSG_CODE_METHOD_GEOGRAPHIC3D_OFFSETS) {
-        auto offsetLat =
+        const auto &offsetLat =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LATITUDE_OFFSET);
         const common::Angle newOffsetLat(negate(offsetLat.value()),
                                          offsetLat.unit());
 
-        auto offsetLong =
+        const auto &offsetLong =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET);
         const common::Angle newOffsetLong(negate(offsetLong.value()),
                                           offsetLong.unit());
 
-        auto offsetHeight =
+        const auto &offsetHeight =
             parameterValueMeasure(EPSG_CODE_PARAMETER_VERTICAL_OFFSET);
         const common::Length newOffsetHeight(negate(offsetHeight.value()),
                                              offsetHeight.unit());
@@ -1624,18 +1686,18 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
     }
 
     if (methodEPSGCode == EPSG_CODE_METHOD_GEOGRAPHIC2D_WITH_HEIGHT_OFFSETS) {
-        auto offsetLat =
+        const auto &offsetLat =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LATITUDE_OFFSET);
         const common::Angle newOffsetLat(negate(offsetLat.value()),
                                          offsetLat.unit());
 
-        auto offsetLong =
+        const auto &offsetLong =
             parameterValueMeasure(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET);
         const common::Angle newOffsetLong(negate(offsetLong.value()),
                                           offsetLong.unit());
 
-        auto offsetHeight =
-            parameterValueMeasure(EPSG_CODE_PARAMETER_GEOID_UNDULATION);
+        const auto &offsetHeight =
+            parameterValueMeasure(EPSG_CODE_PARAMETER_GEOID_HEIGHT);
         const common::Length newOffsetHeight(negate(offsetHeight.value()),
                                              offsetHeight.unit());
 
@@ -1646,9 +1708,26 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
                       newOffsetHeight, coordinateOperationAccuracies()));
     }
 
+    if (methodEPSGCode == EPSG_CODE_METHOD_CARTESIAN_GRID_OFFSETS) {
+        const auto &eastingOffset =
+            parameterValueMeasure(EPSG_CODE_PARAMETER_EASTING_OFFSET);
+        const common::Length newEastingOffset(negate(eastingOffset.value()),
+                                              eastingOffset.unit());
+
+        const auto &northingOffset =
+            parameterValueMeasure(EPSG_CODE_PARAMETER_NORTHING_OFFSET);
+        const common::Length newNorthingOffset(negate(northingOffset.value()),
+                                               northingOffset.unit());
+        return Private::registerInv(
+            this, createCartesianGridOffsets(
+                      createPropertiesForInverse(this, false, false),
+                      l_targetCRS, l_sourceCRS, newEastingOffset,
+                      newNorthingOffset, coordinateOperationAccuracies()));
+    }
+
     if (methodEPSGCode == EPSG_CODE_METHOD_VERTICAL_OFFSET) {
 
-        auto offsetHeight =
+        const auto &offsetHeight =
             parameterValueMeasure(EPSG_CODE_PARAMETER_VERTICAL_OFFSET);
         const common::Length newOffsetHeight(negate(offsetHeight.value()),
                                              offsetHeight.unit());
@@ -1663,10 +1742,12 @@ TransformationNNPtr Transformation::inverseAsTransformation() const {
     if (methodEPSGCode == EPSG_CODE_METHOD_CHANGE_VERTICAL_UNIT) {
         const double convFactor = parameterValueNumericAsSI(
             EPSG_CODE_PARAMETER_UNIT_CONVERSION_SCALAR);
+        // coverity[divide_by_zero]
+        const double invConvFactor = convFactor == 0.0 ? 0.0 : 1.0 / convFactor;
         return Private::registerInv(
             this, createChangeVerticalUnit(
                       createPropertiesForInverse(this, false, false),
-                      l_targetCRS, l_sourceCRS, common::Scale(1.0 / convFactor),
+                      l_targetCRS, l_sourceCRS, common::Scale(invConvFactor),
                       coordinateOperationAccuracies()));
     }
 
@@ -1768,7 +1849,7 @@ void Transformation::_exportToJSON(
         !identifiers().empty()));
 
     writer->AddObjKey("name");
-    auto l_name = nameStr();
+    const auto &l_name = nameStr();
     if (l_name.empty()) {
         writer->Add("unnamed");
     } else {
@@ -1789,6 +1870,12 @@ void Transformation::_exportToJSON(
             writer->AddObjKey("interpolation_crs");
             formatter->setAllowIDInImmediateChild();
             l_interpolationCRS->_exportToJSON(formatter);
+        }
+    } else {
+        if (formatter->abridgedTransformationWriteSourceCRS()) {
+            writer->AddObjKey("source_crs");
+            formatter->setAllowIDInImmediateChild();
+            sourceCRS()->_exportToJSON(formatter);
         }
     }
 
@@ -1825,694 +1912,6 @@ void Transformation::_exportToJSON(
 
 //! @endcond
 
-//! @cond Doxygen_Suppress
-static const std::string nullString;
-
-static const std::string &_getNTv2Filename(const Transformation *op,
-                                           bool allowInverse) {
-
-    const auto &l_method = op->method();
-    if (l_method->getEPSGCode() == EPSG_CODE_METHOD_NTV2 ||
-        (allowInverse &&
-         ci_equal(l_method->nameStr(), INVERSE_OF + EPSG_NAME_METHOD_NTV2))) {
-        const auto &fileParameter = op->parameterValue(
-            EPSG_NAME_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE,
-            EPSG_CODE_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-            return fileParameter->valueFile();
-        }
-    }
-    return nullString;
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-//! @cond Doxygen_Suppress
-const std::string &Transformation::getNTv2Filename() const {
-
-    return _getNTv2Filename(this, false);
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
-//! @cond Doxygen_Suppress
-static const std::string &_getNTv1Filename(const Transformation *op,
-                                           bool allowInverse) {
-
-    const auto &l_method = op->method();
-    const auto &methodName = l_method->nameStr();
-    if (l_method->getEPSGCode() == EPSG_CODE_METHOD_NTV1 ||
-        (allowInverse &&
-         ci_equal(methodName, INVERSE_OF + EPSG_NAME_METHOD_NTV1))) {
-        const auto &fileParameter = op->parameterValue(
-            EPSG_NAME_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE,
-            EPSG_CODE_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-            return fileParameter->valueFile();
-        }
-    }
-    return nullString;
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
-//! @cond Doxygen_Suppress
-static const std::string &_getCTABLE2Filename(const Transformation *op,
-                                              bool allowInverse) {
-    const auto &l_method = op->method();
-    const auto &methodName = l_method->nameStr();
-    if (ci_equal(methodName, PROJ_WKT2_NAME_METHOD_CTABLE2) ||
-        (allowInverse &&
-         ci_equal(methodName, INVERSE_OF + PROJ_WKT2_NAME_METHOD_CTABLE2))) {
-        const auto &fileParameter = op->parameterValue(
-            EPSG_NAME_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE,
-            EPSG_CODE_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-            return fileParameter->valueFile();
-        }
-    }
-    return nullString;
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
-//! @cond Doxygen_Suppress
-static const std::string &
-_getHorizontalShiftGTIFFFilename(const Transformation *op, bool allowInverse) {
-    const auto &l_method = op->method();
-    const auto &methodName = l_method->nameStr();
-    if (ci_equal(methodName, PROJ_WKT2_NAME_METHOD_HORIZONTAL_SHIFT_GTIFF) ||
-        (allowInverse &&
-         ci_equal(methodName,
-                  INVERSE_OF + PROJ_WKT2_NAME_METHOD_HORIZONTAL_SHIFT_GTIFF))) {
-        const auto &fileParameter = op->parameterValue(
-            EPSG_NAME_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE,
-            EPSG_CODE_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-            return fileParameter->valueFile();
-        }
-    }
-    return nullString;
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
-//! @cond Doxygen_Suppress
-static const std::string &
-_getGeocentricTranslationFilename(const Transformation *op, bool allowInverse) {
-
-    const auto &l_method = op->method();
-    const auto &methodName = l_method->nameStr();
-    if (l_method->getEPSGCode() ==
-            EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_BY_GRID_INTERPOLATION_IGN ||
-        (allowInverse &&
-         ci_equal(
-             methodName,
-             INVERSE_OF +
-                 EPSG_NAME_METHOD_GEOCENTRIC_TRANSLATION_BY_GRID_INTERPOLATION_IGN))) {
-        const auto &fileParameter =
-            op->parameterValue(EPSG_NAME_PARAMETER_GEOCENTRIC_TRANSLATION_FILE,
-                               EPSG_CODE_PARAMETER_GEOCENTRIC_TRANSLATION_FILE);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-            return fileParameter->valueFile();
-        }
-    }
-    return nullString;
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
-//! @cond Doxygen_Suppress
-static const std::string &
-_getHeightToGeographic3DFilename(const Transformation *op, bool allowInverse) {
-
-    const auto &methodName = op->method()->nameStr();
-
-    if (ci_equal(methodName, PROJ_WKT2_NAME_METHOD_HEIGHT_TO_GEOG3D) ||
-        (allowInverse &&
-         ci_equal(methodName,
-                  INVERSE_OF + PROJ_WKT2_NAME_METHOD_HEIGHT_TO_GEOG3D))) {
-        const auto &fileParameter =
-            op->parameterValue(EPSG_NAME_PARAMETER_GEOID_CORRECTION_FILENAME,
-                               EPSG_CODE_PARAMETER_GEOID_CORRECTION_FILENAME);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-            return fileParameter->valueFile();
-        }
-    }
-    return nullString;
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
-//! @cond Doxygen_Suppress
-static bool
-isGeographic3DToGravityRelatedHeight(const OperationMethodNNPtr &method,
-                                     bool allowInverse) {
-    const auto &methodName = method->nameStr();
-    static const char *const methodCodes[] = {
-        "1025", // Geographic3D to GravityRelatedHeight (EGM2008)
-        "1030", // Geographic3D to GravityRelatedHeight (NZgeoid)
-        "1045", // Geographic3D to GravityRelatedHeight (OSGM02-Ire)
-        "1047", // Geographic3D to GravityRelatedHeight (Gravsoft)
-        "1048", // Geographic3D to GravityRelatedHeight (Ausgeoid v2)
-        "1050", // Geographic3D to GravityRelatedHeight (CI)
-        "1059", // Geographic3D to GravityRelatedHeight (PNG)
-        "1088", // Geog3D to Geog2D+GravityRelatedHeight (gtx)
-        "1060", // Geographic3D to GravityRelatedHeight (CGG2013)
-        "1072", // Geographic3D to GravityRelatedHeight (OSGM15-Ire)
-        "1073", // Geographic3D to GravityRelatedHeight (IGN2009)
-        "1081", // Geographic3D to GravityRelatedHeight (BEV AT)
-        "1083", // Geog3D to Geog2D+Vertical (AUSGeoid v2)
-        "1089", // Geog3D to Geog2D+GravityRelatedHeight (BEV AT)
-        "1090", // Geog3D to Geog2D+GravityRelatedHeight (CGG 2013)
-        "1091", // Geog3D to Geog2D+GravityRelatedHeight (CI)
-        "1092", // Geog3D to Geog2D+GravityRelatedHeight (EGM2008)
-        "1093", // Geog3D to Geog2D+GravityRelatedHeight (Gravsoft)
-        "1094", // Geog3D to Geog2D+GravityRelatedHeight (IGN1997)
-        "1095", // Geog3D to Geog2D+GravityRelatedHeight (IGN2009)
-        "1096", // Geog3D to Geog2D+GravityRelatedHeight (OSGM15-Ire)
-        "1097", // Geog3D to Geog2D+GravityRelatedHeight (OSGM-GB)
-        "1098", // Geog3D to Geog2D+GravityRelatedHeight (SA 2010)
-        "1100", // Geog3D to Geog2D+GravityRelatedHeight (PL txt)
-        "1103", // Geog3D to Geog2D+GravityRelatedHeight (EGM)
-        "1105", // Geog3D to Geog2D+GravityRelatedHeight (ITAL2005)
-        "9661", // Geographic3D to GravityRelatedHeight (EGM)
-        "9662", // Geographic3D to GravityRelatedHeight (Ausgeoid98)
-        "9663", // Geographic3D to GravityRelatedHeight (OSGM-GB)
-        "9664", // Geographic3D to GravityRelatedHeight (IGN1997)
-        "9665", // Geographic3D to GravityRelatedHeight (US .gtx)
-        "9635", // Geog3D to Geog2D+GravityRelatedHeight (US .gtx)
-    };
-
-    if (ci_find(methodName, "Geographic3D to GravityRelatedHeight") == 0) {
-        return true;
-    }
-    if (allowInverse &&
-        ci_find(methodName,
-                INVERSE_OF + "Geographic3D to GravityRelatedHeight") == 0) {
-        return true;
-    }
-
-    for (const auto &code : methodCodes) {
-        for (const auto &idSrc : method->identifiers()) {
-            const auto &srcAuthName = *(idSrc->codeSpace());
-            const auto &srcCode = idSrc->code();
-            if (ci_equal(srcAuthName, "EPSG") && srcCode == code) {
-                return true;
-            }
-            if (allowInverse && ci_equal(srcAuthName, "INVERSE(EPSG)") &&
-                srcCode == code) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
-//! @cond Doxygen_Suppress
-const std::string &Transformation::getHeightToGeographic3DFilename() const {
-
-    const std::string &ret = _getHeightToGeographic3DFilename(this, false);
-    if (!ret.empty())
-        return ret;
-    if (isGeographic3DToGravityRelatedHeight(method(), false)) {
-        const auto &fileParameter =
-            parameterValue(EPSG_NAME_PARAMETER_GEOID_CORRECTION_FILENAME,
-                           EPSG_CODE_PARAMETER_GEOID_CORRECTION_FILENAME);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-            return fileParameter->valueFile();
-        }
-    }
-    return nullString;
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
-//! @cond Doxygen_Suppress
-static util::PropertyMap
-createSimilarPropertiesMethod(common::IdentifiedObjectNNPtr obj) {
-    util::PropertyMap map;
-
-    const std::string &forwardName = obj->nameStr();
-    if (!forwardName.empty()) {
-        map.set(common::IdentifiedObject::NAME_KEY, forwardName);
-    }
-
-    {
-        auto ar = util::ArrayOfBaseObject::create();
-        for (const auto &idSrc : obj->identifiers()) {
-            const auto &srcAuthName = *(idSrc->codeSpace());
-            const auto &srcCode = idSrc->code();
-            auto idsProp = util::PropertyMap().set(
-                metadata::Identifier::CODESPACE_KEY, srcAuthName);
-            ar->add(metadata::Identifier::create(srcCode, idsProp));
-        }
-        if (!ar->empty()) {
-            map.set(common::IdentifiedObject::IDENTIFIERS_KEY, ar);
-        }
-    }
-
-    return map;
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
-//! @cond Doxygen_Suppress
-static util::PropertyMap
-createSimilarPropertiesTransformation(TransformationNNPtr obj) {
-    util::PropertyMap map;
-
-    // The domain(s) are unchanged
-    addDomains(map, obj.get());
-
-    const std::string &forwardName = obj->nameStr();
-    if (!forwardName.empty()) {
-        map.set(common::IdentifiedObject::NAME_KEY, forwardName);
-    }
-
-    const std::string &remarks = obj->remarks();
-    if (!remarks.empty()) {
-        map.set(common::IdentifiedObject::REMARKS_KEY, remarks);
-    }
-
-    addModifiedIdentifier(map, obj.get(), false, true);
-
-    return map;
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
-//! @cond Doxygen_Suppress
-static TransformationNNPtr
-createNTv1(const util::PropertyMap &properties,
-           const crs::CRSNNPtr &sourceCRSIn, const crs::CRSNNPtr &targetCRSIn,
-           const std::string &filename,
-           const std::vector<metadata::PositionalAccuracyNNPtr> &accuracies) {
-    return Transformation::create(
-        properties, sourceCRSIn, targetCRSIn, nullptr,
-        createMethodMapNameEPSGCode(EPSG_CODE_METHOD_NTV1),
-        {OperationParameter::create(
-            util::PropertyMap()
-                .set(common::IdentifiedObject::NAME_KEY,
-                     EPSG_NAME_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE)
-                .set(metadata::Identifier::CODESPACE_KEY,
-                     metadata::Identifier::EPSG)
-                .set(metadata::Identifier::CODE_KEY,
-                     EPSG_CODE_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE))},
-        {ParameterValue::createFilename(filename)}, accuracies);
-}
-//! @endcond
-
-// ---------------------------------------------------------------------------
-
-/** \brief Return an equivalent transformation to the current one, but using
- * PROJ alternative grid names.
- */
-TransformationNNPtr Transformation::substitutePROJAlternativeGridNames(
-    io::DatabaseContextNNPtr databaseContext) const {
-    auto self = NN_NO_CHECK(std::dynamic_pointer_cast<Transformation>(
-        shared_from_this().as_nullable()));
-
-    const auto &l_method = method();
-    const int methodEPSGCode = l_method->getEPSGCode();
-
-    std::string projFilename;
-    std::string projGridFormat;
-    bool inverseDirection = false;
-
-    const auto &NTv1Filename = _getNTv1Filename(this, false);
-    const auto &NTv2Filename = _getNTv2Filename(this, false);
-    std::string lasFilename;
-    if (methodEPSGCode == EPSG_CODE_METHOD_NADCON) {
-        const auto &latitudeFileParameter =
-            parameterValue(EPSG_NAME_PARAMETER_LATITUDE_DIFFERENCE_FILE,
-                           EPSG_CODE_PARAMETER_LATITUDE_DIFFERENCE_FILE);
-        const auto &longitudeFileParameter =
-            parameterValue(EPSG_NAME_PARAMETER_LONGITUDE_DIFFERENCE_FILE,
-                           EPSG_CODE_PARAMETER_LONGITUDE_DIFFERENCE_FILE);
-        if (latitudeFileParameter &&
-            latitudeFileParameter->type() == ParameterValue::Type::FILENAME &&
-            longitudeFileParameter &&
-            longitudeFileParameter->type() == ParameterValue::Type::FILENAME) {
-            lasFilename = latitudeFileParameter->valueFile();
-        }
-    }
-    const auto &horizontalGridName =
-        !NTv1Filename.empty()
-            ? NTv1Filename
-            : !NTv2Filename.empty() ? NTv2Filename : lasFilename;
-
-    if (!horizontalGridName.empty() && databaseContext->lookForGridAlternative(
-                                           horizontalGridName, projFilename,
-                                           projGridFormat, inverseDirection)) {
-
-        if (horizontalGridName == projFilename) {
-            if (inverseDirection) {
-                throw util::UnsupportedOperationException(
-                    "Inverse direction for " + projFilename + " not supported");
-            }
-            return self;
-        }
-
-        const auto &l_sourceCRS = sourceCRS();
-        const auto &l_targetCRS = targetCRS();
-        const auto &l_accuracies = coordinateOperationAccuracies();
-        if (projGridFormat == "GTiff") {
-            auto parameters =
-                std::vector<OperationParameterNNPtr>{createOpParamNameEPSGCode(
-                    EPSG_CODE_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE)};
-            auto methodProperties = util::PropertyMap().set(
-                common::IdentifiedObject::NAME_KEY,
-                PROJ_WKT2_NAME_METHOD_HORIZONTAL_SHIFT_GTIFF);
-            auto values = std::vector<ParameterValueNNPtr>{
-                ParameterValue::createFilename(projFilename)};
-            if (inverseDirection) {
-                return create(createPropertiesForInverse(
-                                  self.as_nullable().get(), true, false),
-                              l_targetCRS, l_sourceCRS, nullptr,
-                              methodProperties, parameters, values,
-                              l_accuracies)
-                    ->inverseAsTransformation();
-
-            } else {
-                return create(createSimilarPropertiesTransformation(self),
-                              l_sourceCRS, l_targetCRS, nullptr,
-                              methodProperties, parameters, values,
-                              l_accuracies);
-            }
-        } else if (projGridFormat == "NTv1") {
-            if (inverseDirection) {
-                return createNTv1(createPropertiesForInverse(
-                                      self.as_nullable().get(), true, false),
-                                  l_targetCRS, l_sourceCRS, projFilename,
-                                  l_accuracies)
-                    ->inverseAsTransformation();
-            } else {
-                return createNTv1(createSimilarPropertiesTransformation(self),
-                                  l_sourceCRS, l_targetCRS, projFilename,
-                                  l_accuracies);
-            }
-        } else if (projGridFormat == "NTv2") {
-            if (inverseDirection) {
-                return createNTv2(createPropertiesForInverse(
-                                      self.as_nullable().get(), true, false),
-                                  l_targetCRS, l_sourceCRS, projFilename,
-                                  l_accuracies)
-                    ->inverseAsTransformation();
-            } else {
-                return createNTv2(createSimilarPropertiesTransformation(self),
-                                  l_sourceCRS, l_targetCRS, projFilename,
-                                  l_accuracies);
-            }
-        } else if (projGridFormat == "CTable2") {
-            auto parameters =
-                std::vector<OperationParameterNNPtr>{createOpParamNameEPSGCode(
-                    EPSG_CODE_PARAMETER_LATITUDE_LONGITUDE_DIFFERENCE_FILE)};
-            auto methodProperties =
-                util::PropertyMap().set(common::IdentifiedObject::NAME_KEY,
-                                        PROJ_WKT2_NAME_METHOD_CTABLE2);
-            auto values = std::vector<ParameterValueNNPtr>{
-                ParameterValue::createFilename(projFilename)};
-            if (inverseDirection) {
-                return create(createPropertiesForInverse(
-                                  self.as_nullable().get(), true, false),
-                              l_targetCRS, l_sourceCRS, nullptr,
-                              methodProperties, parameters, values,
-                              l_accuracies)
-                    ->inverseAsTransformation();
-
-            } else {
-                return create(createSimilarPropertiesTransformation(self),
-                              l_sourceCRS, l_targetCRS, nullptr,
-                              methodProperties, parameters, values,
-                              l_accuracies);
-            }
-        }
-    }
-
-    if (isGeographic3DToGravityRelatedHeight(method(), false)) {
-        const auto &fileParameter =
-            parameterValue(EPSG_NAME_PARAMETER_GEOID_CORRECTION_FILENAME,
-                           EPSG_CODE_PARAMETER_GEOID_CORRECTION_FILENAME);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-            auto filename = fileParameter->valueFile();
-            if (databaseContext->lookForGridAlternative(
-                    filename, projFilename, projGridFormat, inverseDirection)) {
-
-                if (inverseDirection) {
-                    throw util::UnsupportedOperationException(
-                        "Inverse direction for "
-                        "Geographic3DToGravityRelatedHeight not supported");
-                }
-
-                if (filename == projFilename) {
-                    return self;
-                }
-
-                auto parameters = std::vector<OperationParameterNNPtr>{
-                    createOpParamNameEPSGCode(
-                        EPSG_CODE_PARAMETER_GEOID_CORRECTION_FILENAME)};
-#ifdef disabled_for_now
-                if (inverseDirection) {
-                    return create(
-                               createPropertiesForInverse(
-                                   self.as_nullable().get(), true, false),
-                               targetCRS(), sourceCRS(), nullptr,
-                               createSimilarPropertiesMethod(method()),
-                               parameters,
-                               {ParameterValue::createFilename(projFilename)},
-                               coordinateOperationAccuracies())
-                        ->inverseAsTransformation();
-                } else
-#endif
-                {
-                    return create(
-                        createSimilarPropertiesTransformation(self),
-                        sourceCRS(), targetCRS(), nullptr,
-                        createSimilarPropertiesMethod(method()), parameters,
-                        {ParameterValue::createFilename(projFilename)},
-                        coordinateOperationAccuracies());
-                }
-            }
-        }
-    }
-
-    const auto &geocentricTranslationFilename =
-        _getGeocentricTranslationFilename(this, false);
-    if (!geocentricTranslationFilename.empty()) {
-        if (databaseContext->lookForGridAlternative(
-                geocentricTranslationFilename, projFilename, projGridFormat,
-                inverseDirection)) {
-
-            if (inverseDirection) {
-                throw util::UnsupportedOperationException(
-                    "Inverse direction for "
-                    "GeocentricTranslation not supported");
-            }
-
-            if (geocentricTranslationFilename == projFilename) {
-                return self;
-            }
-
-            auto parameters =
-                std::vector<OperationParameterNNPtr>{createOpParamNameEPSGCode(
-                    EPSG_CODE_PARAMETER_GEOCENTRIC_TRANSLATION_FILE)};
-            return create(createSimilarPropertiesTransformation(self),
-                          sourceCRS(), targetCRS(), interpolationCRS(),
-                          createSimilarPropertiesMethod(method()), parameters,
-                          {ParameterValue::createFilename(projFilename)},
-                          coordinateOperationAccuracies());
-        }
-    }
-
-    if (methodEPSGCode == EPSG_CODE_METHOD_VERTCON ||
-        methodEPSGCode == EPSG_CODE_METHOD_VERTICALGRID_NZLVD ||
-        methodEPSGCode == EPSG_CODE_METHOD_VERTICALGRID_BEV_AT ||
-        methodEPSGCode == EPSG_CODE_METHOD_VERTICALGRID_GTX ||
-        methodEPSGCode == EPSG_CODE_METHOD_VERTICALGRID_PL_TXT) {
-        auto fileParameter =
-            parameterValue(EPSG_NAME_PARAMETER_VERTICAL_OFFSET_FILE,
-                           EPSG_CODE_PARAMETER_VERTICAL_OFFSET_FILE);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-
-            auto filename = fileParameter->valueFile();
-            if (databaseContext->lookForGridAlternative(
-                    filename, projFilename, projGridFormat, inverseDirection)) {
-
-                if (filename == projFilename) {
-                    if (inverseDirection) {
-                        throw util::UnsupportedOperationException(
-                            "Inverse direction for " + projFilename +
-                            " not supported");
-                    }
-                    return self;
-                }
-
-                auto parameters = std::vector<OperationParameterNNPtr>{
-                    createOpParamNameEPSGCode(
-                        EPSG_CODE_PARAMETER_VERTICAL_OFFSET_FILE)};
-                if (inverseDirection) {
-                    return create(
-                               createPropertiesForInverse(
-                                   self.as_nullable().get(), true, false),
-                               targetCRS(), sourceCRS(), nullptr,
-                               createSimilarPropertiesMethod(method()),
-                               parameters,
-                               {ParameterValue::createFilename(projFilename)},
-                               coordinateOperationAccuracies())
-                        ->inverseAsTransformation();
-                } else {
-                    return create(
-                        createSimilarPropertiesTransformation(self),
-                        sourceCRS(), targetCRS(), nullptr,
-                        createSimilarPropertiesMethod(method()), parameters,
-                        {ParameterValue::createFilename(projFilename)},
-                        coordinateOperationAccuracies());
-                }
-            }
-        }
-    }
-
-    return self;
-}
-
-// ---------------------------------------------------------------------------
-
-//! @cond Doxygen_Suppress
-
-static void ThrowExceptionNotGeodeticGeographic(const char *trfrm_name) {
-    throw io::FormattingException(concat("Can apply ", std::string(trfrm_name),
-                                         " only to GeodeticCRS / "
-                                         "GeographicCRS"));
-}
-
-// ---------------------------------------------------------------------------
-
-// If crs is a geographic CRS, or a compound CRS of a geographic CRS,
-// or a compoundCRS of a bound CRS of a geographic CRS, return that
-// geographic CRS
-static crs::GeographicCRSPtr
-extractGeographicCRSIfGeographicCRSOrEquivalent(const crs::CRSNNPtr &crs) {
-    auto geogCRS = util::nn_dynamic_pointer_cast<crs::GeographicCRS>(crs);
-    if (!geogCRS) {
-        auto compoundCRS = util::nn_dynamic_pointer_cast<crs::CompoundCRS>(crs);
-        if (compoundCRS) {
-            const auto &components = compoundCRS->componentReferenceSystems();
-            if (!components.empty()) {
-                geogCRS = util::nn_dynamic_pointer_cast<crs::GeographicCRS>(
-                    components[0]);
-                if (!geogCRS) {
-                    auto boundCRS =
-                        util::nn_dynamic_pointer_cast<crs::BoundCRS>(
-                            components[0]);
-                    if (boundCRS) {
-                        geogCRS =
-                            util::nn_dynamic_pointer_cast<crs::GeographicCRS>(
-                                boundCRS->baseCRS());
-                    }
-                }
-            }
-        } else {
-            auto boundCRS = util::nn_dynamic_pointer_cast<crs::BoundCRS>(crs);
-            if (boundCRS) {
-                geogCRS = util::nn_dynamic_pointer_cast<crs::GeographicCRS>(
-                    boundCRS->baseCRS());
-            }
-        }
-    }
-    return geogCRS;
-}
-
-// ---------------------------------------------------------------------------
-
-static void setupPROJGeodeticSourceCRS(io::PROJStringFormatter *formatter,
-                                       const crs::CRSNNPtr &crs, bool addPushV3,
-                                       const char *trfrm_name) {
-    auto sourceCRSGeog = extractGeographicCRSIfGeographicCRSOrEquivalent(crs);
-    if (sourceCRSGeog) {
-        formatter->startInversion();
-        sourceCRSGeog->_exportToPROJString(formatter);
-        formatter->stopInversion();
-        if (util::isOfExactType<crs::DerivedGeographicCRS>(
-                *(sourceCRSGeog.get()))) {
-            // The export of a DerivedGeographicCRS in non-CRS mode adds
-            // unit conversion and axis swapping. We must compensate for that
-            formatter->startInversion();
-            sourceCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-            formatter->stopInversion();
-        }
-
-        if (addPushV3) {
-            formatter->addStep("push");
-            formatter->addParam("v_3");
-        }
-
-        formatter->addStep("cart");
-        sourceCRSGeog->ellipsoid()->_exportToPROJString(formatter);
-    } else {
-        auto sourceCRSGeod = dynamic_cast<const crs::GeodeticCRS *>(crs.get());
-        if (!sourceCRSGeod) {
-            ThrowExceptionNotGeodeticGeographic(trfrm_name);
-        }
-        formatter->startInversion();
-        sourceCRSGeod->addGeocentricUnitConversionIntoPROJString(formatter);
-        formatter->stopInversion();
-    }
-}
-// ---------------------------------------------------------------------------
-
-static void setupPROJGeodeticTargetCRS(io::PROJStringFormatter *formatter,
-                                       const crs::CRSNNPtr &crs, bool addPopV3,
-                                       const char *trfrm_name) {
-    auto targetCRSGeog = extractGeographicCRSIfGeographicCRSOrEquivalent(crs);
-    if (targetCRSGeog) {
-        formatter->addStep("cart");
-        formatter->setCurrentStepInverted(true);
-        targetCRSGeog->ellipsoid()->_exportToPROJString(formatter);
-
-        if (addPopV3) {
-            formatter->addStep("pop");
-            formatter->addParam("v_3");
-        }
-        if (util::isOfExactType<crs::DerivedGeographicCRS>(
-                *(targetCRSGeog.get()))) {
-            // The export of a DerivedGeographicCRS in non-CRS mode adds
-            // unit conversion and axis swapping. We must compensate for that
-            targetCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-        }
-        targetCRSGeog->_exportToPROJString(formatter);
-    } else {
-        auto targetCRSGeod = dynamic_cast<const crs::GeodeticCRS *>(crs.get());
-        if (!targetCRSGeod) {
-            ThrowExceptionNotGeodeticGeographic(trfrm_name);
-        }
-        targetCRSGeod->addGeocentricUnitConversionIntoPROJString(formatter);
-    }
-}
-
-//! @endcond
-
 // ---------------------------------------------------------------------------
 
 void Transformation::_exportToPROJString(
@@ -2524,776 +1923,11 @@ void Transformation::_exportToPROJString(
             "Transformation cannot be exported as a PROJ.4 string");
     }
 
-    formatter->setCoordinateOperationOptimizations(true);
-
-    bool positionVectorConvention = true;
-    bool sevenParamsTransform = false;
-    bool threeParamsTransform = false;
-    bool fifteenParamsTransform = false;
-    const auto &l_method = method();
-    const int methodEPSGCode = l_method->getEPSGCode();
-    const auto &methodName = l_method->nameStr();
-    const auto paramCount = parameterValues().size();
-    const bool l_isTimeDependent = isTimeDependent(methodName);
-    const bool isPositionVector =
-        ci_find(methodName, "Position Vector") != std::string::npos ||
-        ci_find(methodName, "PV") != std::string::npos;
-    const bool isCoordinateFrame =
-        ci_find(methodName, "Coordinate Frame") != std::string::npos ||
-        ci_find(methodName, "CF") != std::string::npos;
-    if ((paramCount == 7 && isCoordinateFrame && !l_isTimeDependent) ||
-        methodEPSGCode == EPSG_CODE_METHOD_COORDINATE_FRAME_GEOCENTRIC ||
-        methodEPSGCode == EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_2D ||
-        methodEPSGCode == EPSG_CODE_METHOD_COORDINATE_FRAME_GEOGRAPHIC_3D) {
-        positionVectorConvention = false;
-        sevenParamsTransform = true;
-    } else if (
-        (paramCount == 15 && isCoordinateFrame && l_isTimeDependent) ||
-        methodEPSGCode ==
-            EPSG_CODE_METHOD_TIME_DEPENDENT_COORDINATE_FRAME_GEOCENTRIC ||
-        methodEPSGCode ==
-            EPSG_CODE_METHOD_TIME_DEPENDENT_COORDINATE_FRAME_GEOGRAPHIC_2D ||
-        methodEPSGCode ==
-            EPSG_CODE_METHOD_TIME_DEPENDENT_COORDINATE_FRAME_GEOGRAPHIC_3D) {
-        positionVectorConvention = false;
-        fifteenParamsTransform = true;
-    } else if ((paramCount == 7 && isPositionVector && !l_isTimeDependent) ||
-               methodEPSGCode == EPSG_CODE_METHOD_POSITION_VECTOR_GEOCENTRIC ||
-               methodEPSGCode ==
-                   EPSG_CODE_METHOD_POSITION_VECTOR_GEOGRAPHIC_2D ||
-               methodEPSGCode ==
-                   EPSG_CODE_METHOD_POSITION_VECTOR_GEOGRAPHIC_3D) {
-        sevenParamsTransform = true;
-    } else if (
-        (paramCount == 15 && isPositionVector && l_isTimeDependent) ||
-        methodEPSGCode ==
-            EPSG_CODE_METHOD_TIME_DEPENDENT_POSITION_VECTOR_GEOCENTRIC ||
-        methodEPSGCode ==
-            EPSG_CODE_METHOD_TIME_DEPENDENT_POSITION_VECTOR_GEOGRAPHIC_2D ||
-        methodEPSGCode ==
-            EPSG_CODE_METHOD_TIME_DEPENDENT_POSITION_VECTOR_GEOGRAPHIC_3D) {
-        fifteenParamsTransform = true;
-    } else if ((paramCount == 3 &&
-                ci_find(methodName, "Geocentric translations") !=
-                    std::string::npos) ||
-               methodEPSGCode ==
-                   EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_GEOCENTRIC ||
-               methodEPSGCode ==
-                   EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_GEOGRAPHIC_2D ||
-               methodEPSGCode ==
-                   EPSG_CODE_METHOD_GEOCENTRIC_TRANSLATION_GEOGRAPHIC_3D) {
-        threeParamsTransform = true;
-    }
-    if (threeParamsTransform || sevenParamsTransform ||
-        fifteenParamsTransform) {
-        double x =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_X_AXIS_TRANSLATION);
-        double y =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_Y_AXIS_TRANSLATION);
-        double z =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_Z_AXIS_TRANSLATION);
-
-        auto sourceCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(sourceCRS().get());
-        auto targetCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(targetCRS().get());
-        const bool addPushPopV3 =
-            ((sourceCRSGeog &&
-              sourceCRSGeog->coordinateSystem()->axisList().size() == 2) ||
-             (targetCRSGeog &&
-              targetCRSGeog->coordinateSystem()->axisList().size() == 2));
-
-        setupPROJGeodeticSourceCRS(formatter, sourceCRS(), addPushPopV3,
-                                   "Helmert");
-
-        formatter->addStep("helmert");
-        formatter->addParam("x", x);
-        formatter->addParam("y", y);
-        formatter->addParam("z", z);
-        if (sevenParamsTransform || fifteenParamsTransform) {
-            double rx =
-                parameterValueNumeric(EPSG_CODE_PARAMETER_X_AXIS_ROTATION,
-                                      common::UnitOfMeasure::ARC_SECOND);
-            double ry =
-                parameterValueNumeric(EPSG_CODE_PARAMETER_Y_AXIS_ROTATION,
-                                      common::UnitOfMeasure::ARC_SECOND);
-            double rz =
-                parameterValueNumeric(EPSG_CODE_PARAMETER_Z_AXIS_ROTATION,
-                                      common::UnitOfMeasure::ARC_SECOND);
-            double scaleDiff =
-                parameterValueNumeric(EPSG_CODE_PARAMETER_SCALE_DIFFERENCE,
-                                      common::UnitOfMeasure::PARTS_PER_MILLION);
-            formatter->addParam("rx", rx);
-            formatter->addParam("ry", ry);
-            formatter->addParam("rz", rz);
-            formatter->addParam("s", scaleDiff);
-            if (fifteenParamsTransform) {
-                double rate_x = parameterValueNumeric(
-                    EPSG_CODE_PARAMETER_RATE_X_AXIS_TRANSLATION,
-                    common::UnitOfMeasure::METRE_PER_YEAR);
-                double rate_y = parameterValueNumeric(
-                    EPSG_CODE_PARAMETER_RATE_Y_AXIS_TRANSLATION,
-                    common::UnitOfMeasure::METRE_PER_YEAR);
-                double rate_z = parameterValueNumeric(
-                    EPSG_CODE_PARAMETER_RATE_Z_AXIS_TRANSLATION,
-                    common::UnitOfMeasure::METRE_PER_YEAR);
-                double rate_rx = parameterValueNumeric(
-                    EPSG_CODE_PARAMETER_RATE_X_AXIS_ROTATION,
-                    common::UnitOfMeasure::ARC_SECOND_PER_YEAR);
-                double rate_ry = parameterValueNumeric(
-                    EPSG_CODE_PARAMETER_RATE_Y_AXIS_ROTATION,
-                    common::UnitOfMeasure::ARC_SECOND_PER_YEAR);
-                double rate_rz = parameterValueNumeric(
-                    EPSG_CODE_PARAMETER_RATE_Z_AXIS_ROTATION,
-                    common::UnitOfMeasure::ARC_SECOND_PER_YEAR);
-                double rate_scaleDiff = parameterValueNumeric(
-                    EPSG_CODE_PARAMETER_RATE_SCALE_DIFFERENCE,
-                    common::UnitOfMeasure::PPM_PER_YEAR);
-                double referenceEpochYear =
-                    parameterValueNumeric(EPSG_CODE_PARAMETER_REFERENCE_EPOCH,
-                                          common::UnitOfMeasure::YEAR);
-                formatter->addParam("dx", rate_x);
-                formatter->addParam("dy", rate_y);
-                formatter->addParam("dz", rate_z);
-                formatter->addParam("drx", rate_rx);
-                formatter->addParam("dry", rate_ry);
-                formatter->addParam("drz", rate_rz);
-                formatter->addParam("ds", rate_scaleDiff);
-                formatter->addParam("t_epoch", referenceEpochYear);
-            }
-            if (positionVectorConvention) {
-                formatter->addParam("convention", "position_vector");
-            } else {
-                formatter->addParam("convention", "coordinate_frame");
-            }
-        }
-
-        setupPROJGeodeticTargetCRS(formatter, targetCRS(), addPushPopV3,
-                                   "Helmert");
-
-        return;
-    }
-
-    if (methodEPSGCode == EPSG_CODE_METHOD_MOLODENSKY_BADEKAS_CF_GEOCENTRIC ||
-        methodEPSGCode == EPSG_CODE_METHOD_MOLODENSKY_BADEKAS_PV_GEOCENTRIC ||
-        methodEPSGCode ==
-            EPSG_CODE_METHOD_MOLODENSKY_BADEKAS_CF_GEOGRAPHIC_3D ||
-        methodEPSGCode ==
-            EPSG_CODE_METHOD_MOLODENSKY_BADEKAS_PV_GEOGRAPHIC_3D ||
-        methodEPSGCode ==
-            EPSG_CODE_METHOD_MOLODENSKY_BADEKAS_CF_GEOGRAPHIC_2D ||
-        methodEPSGCode ==
-            EPSG_CODE_METHOD_MOLODENSKY_BADEKAS_PV_GEOGRAPHIC_2D) {
-
-        positionVectorConvention =
-            isPositionVector ||
-            methodEPSGCode ==
-                EPSG_CODE_METHOD_MOLODENSKY_BADEKAS_PV_GEOCENTRIC ||
-            methodEPSGCode ==
-                EPSG_CODE_METHOD_MOLODENSKY_BADEKAS_PV_GEOGRAPHIC_3D ||
-            methodEPSGCode ==
-                EPSG_CODE_METHOD_MOLODENSKY_BADEKAS_PV_GEOGRAPHIC_2D;
-
-        double x =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_X_AXIS_TRANSLATION);
-        double y =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_Y_AXIS_TRANSLATION);
-        double z =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_Z_AXIS_TRANSLATION);
-        double rx = parameterValueNumeric(EPSG_CODE_PARAMETER_X_AXIS_ROTATION,
-                                          common::UnitOfMeasure::ARC_SECOND);
-        double ry = parameterValueNumeric(EPSG_CODE_PARAMETER_Y_AXIS_ROTATION,
-                                          common::UnitOfMeasure::ARC_SECOND);
-        double rz = parameterValueNumeric(EPSG_CODE_PARAMETER_Z_AXIS_ROTATION,
-                                          common::UnitOfMeasure::ARC_SECOND);
-        double scaleDiff =
-            parameterValueNumeric(EPSG_CODE_PARAMETER_SCALE_DIFFERENCE,
-                                  common::UnitOfMeasure::PARTS_PER_MILLION);
-
-        double px = parameterValueNumericAsSI(
-            EPSG_CODE_PARAMETER_ORDINATE_1_EVAL_POINT);
-        double py = parameterValueNumericAsSI(
-            EPSG_CODE_PARAMETER_ORDINATE_2_EVAL_POINT);
-        double pz = parameterValueNumericAsSI(
-            EPSG_CODE_PARAMETER_ORDINATE_3_EVAL_POINT);
-
-        bool addPushPopV3 =
-            (methodEPSGCode ==
-                 EPSG_CODE_METHOD_MOLODENSKY_BADEKAS_PV_GEOGRAPHIC_2D ||
-             methodEPSGCode ==
-                 EPSG_CODE_METHOD_MOLODENSKY_BADEKAS_CF_GEOGRAPHIC_2D);
-
-        setupPROJGeodeticSourceCRS(formatter, sourceCRS(), addPushPopV3,
-                                   "Molodensky-Badekas");
-
-        formatter->addStep("molobadekas");
-        formatter->addParam("x", x);
-        formatter->addParam("y", y);
-        formatter->addParam("z", z);
-        formatter->addParam("rx", rx);
-        formatter->addParam("ry", ry);
-        formatter->addParam("rz", rz);
-        formatter->addParam("s", scaleDiff);
-        formatter->addParam("px", px);
-        formatter->addParam("py", py);
-        formatter->addParam("pz", pz);
-        if (positionVectorConvention) {
-            formatter->addParam("convention", "position_vector");
-        } else {
-            formatter->addParam("convention", "coordinate_frame");
-        }
-
-        setupPROJGeodeticTargetCRS(formatter, targetCRS(), addPushPopV3,
-                                   "Molodensky-Badekas");
-
-        return;
-    }
-
-    if (methodEPSGCode == EPSG_CODE_METHOD_MOLODENSKY ||
-        methodEPSGCode == EPSG_CODE_METHOD_ABRIDGED_MOLODENSKY) {
-        double x =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_X_AXIS_TRANSLATION);
-        double y =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_Y_AXIS_TRANSLATION);
-        double z =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_Z_AXIS_TRANSLATION);
-        double da = parameterValueNumericAsSI(
-            EPSG_CODE_PARAMETER_SEMI_MAJOR_AXIS_DIFFERENCE);
-        double df = parameterValueNumericAsSI(
-            EPSG_CODE_PARAMETER_FLATTENING_DIFFERENCE);
-
-        auto sourceCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(sourceCRS().get());
-        if (!sourceCRSGeog) {
-            throw io::FormattingException(
-                "Can apply Molodensky only to GeographicCRS");
-        }
-
-        auto targetCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(targetCRS().get());
-        if (!targetCRSGeog) {
-            throw io::FormattingException(
-                "Can apply Molodensky only to GeographicCRS");
-        }
-
-        formatter->startInversion();
-        sourceCRSGeog->_exportToPROJString(formatter);
-        formatter->stopInversion();
-
-        formatter->addStep("molodensky");
-        sourceCRSGeog->ellipsoid()->_exportToPROJString(formatter);
-        formatter->addParam("dx", x);
-        formatter->addParam("dy", y);
-        formatter->addParam("dz", z);
-        formatter->addParam("da", da);
-        formatter->addParam("df", df);
-
-        if (ci_find(methodName, "Abridged") != std::string::npos ||
-            methodEPSGCode == EPSG_CODE_METHOD_ABRIDGED_MOLODENSKY) {
-            formatter->addParam("abridged");
-        }
-
-        targetCRSGeog->_exportToPROJString(formatter);
-
-        return;
-    }
-
-    if (methodEPSGCode == EPSG_CODE_METHOD_GEOGRAPHIC2D_OFFSETS) {
-        double offsetLat =
-            parameterValueNumeric(EPSG_CODE_PARAMETER_LATITUDE_OFFSET,
-                                  common::UnitOfMeasure::ARC_SECOND);
-        double offsetLong =
-            parameterValueNumeric(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET,
-                                  common::UnitOfMeasure::ARC_SECOND);
-
-        auto sourceCRSGeog =
-            extractGeographicCRSIfGeographicCRSOrEquivalent(sourceCRS());
-        if (!sourceCRSGeog) {
-            throw io::FormattingException(
-                "Can apply Geographic 2D offsets only to GeographicCRS");
-        }
-
-        auto targetCRSGeog =
-            extractGeographicCRSIfGeographicCRSOrEquivalent(targetCRS());
-        if (!targetCRSGeog) {
-            throw io::FormattingException(
-                "Can apply Geographic 2D offsets only to GeographicCRS");
-        }
-
-        formatter->startInversion();
-        sourceCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-        formatter->stopInversion();
-
-        if (offsetLat != 0.0 || offsetLong != 0.0) {
-            formatter->addStep("geogoffset");
-            formatter->addParam("dlat", offsetLat);
-            formatter->addParam("dlon", offsetLong);
-        }
-
-        targetCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-
-        return;
-    }
-
-    if (methodEPSGCode == EPSG_CODE_METHOD_GEOGRAPHIC3D_OFFSETS) {
-        double offsetLat =
-            parameterValueNumeric(EPSG_CODE_PARAMETER_LATITUDE_OFFSET,
-                                  common::UnitOfMeasure::ARC_SECOND);
-        double offsetLong =
-            parameterValueNumeric(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET,
-                                  common::UnitOfMeasure::ARC_SECOND);
-        double offsetHeight =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_VERTICAL_OFFSET);
-
-        auto sourceCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(sourceCRS().get());
-        if (!sourceCRSGeog) {
-            throw io::FormattingException(
-                "Can apply Geographic 3D offsets only to GeographicCRS");
-        }
-
-        auto targetCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(targetCRS().get());
-        if (!targetCRSGeog) {
-            throw io::FormattingException(
-                "Can apply Geographic 3D offsets only to GeographicCRS");
-        }
-
-        formatter->startInversion();
-        sourceCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-        formatter->stopInversion();
-
-        if (offsetLat != 0.0 || offsetLong != 0.0 || offsetHeight != 0.0) {
-            formatter->addStep("geogoffset");
-            formatter->addParam("dlat", offsetLat);
-            formatter->addParam("dlon", offsetLong);
-            formatter->addParam("dh", offsetHeight);
-        }
-
-        targetCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-
-        return;
-    }
-
-    if (methodEPSGCode == EPSG_CODE_METHOD_GEOGRAPHIC2D_WITH_HEIGHT_OFFSETS) {
-        double offsetLat =
-            parameterValueNumeric(EPSG_CODE_PARAMETER_LATITUDE_OFFSET,
-                                  common::UnitOfMeasure::ARC_SECOND);
-        double offsetLong =
-            parameterValueNumeric(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET,
-                                  common::UnitOfMeasure::ARC_SECOND);
-        double offsetHeight =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_GEOID_UNDULATION);
-
-        auto sourceCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(sourceCRS().get());
-        if (!sourceCRSGeog) {
-            auto sourceCRSCompound =
-                dynamic_cast<const crs::CompoundCRS *>(sourceCRS().get());
-            if (sourceCRSCompound) {
-                sourceCRSGeog = sourceCRSCompound->extractGeographicCRS().get();
-            }
-            if (!sourceCRSGeog) {
-                throw io::FormattingException("Can apply Geographic 2D with "
-                                              "height offsets only to "
-                                              "GeographicCRS / CompoundCRS");
-            }
-        }
-
-        auto targetCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(targetCRS().get());
-        if (!targetCRSGeog) {
-            auto targetCRSCompound =
-                dynamic_cast<const crs::CompoundCRS *>(targetCRS().get());
-            if (targetCRSCompound) {
-                targetCRSGeog = targetCRSCompound->extractGeographicCRS().get();
-            }
-            if (!targetCRSGeog) {
-                throw io::FormattingException("Can apply Geographic 2D with "
-                                              "height offsets only to "
-                                              "GeographicCRS / CompoundCRS");
-            }
-        }
-
-        formatter->startInversion();
-        sourceCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-        formatter->stopInversion();
-
-        if (offsetLat != 0.0 || offsetLong != 0.0 || offsetHeight != 0.0) {
-            formatter->addStep("geogoffset");
-            formatter->addParam("dlat", offsetLat);
-            formatter->addParam("dlon", offsetLong);
-            formatter->addParam("dh", offsetHeight);
-        }
-
-        targetCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-
-        return;
-    }
-
-    if (methodEPSGCode == EPSG_CODE_METHOD_VERTICAL_OFFSET) {
-
-        const crs::CRS *srcCRS = sourceCRS().get();
-        const crs::CRS *tgtCRS = targetCRS().get();
-
-        const auto sourceCRSCompound =
-            dynamic_cast<const crs::CompoundCRS *>(srcCRS);
-        const auto targetCRSCompound =
-            dynamic_cast<const crs::CompoundCRS *>(tgtCRS);
-        if (sourceCRSCompound && targetCRSCompound &&
-            sourceCRSCompound->componentReferenceSystems()[0]->_isEquivalentTo(
-                targetCRSCompound->componentReferenceSystems()[0].get(),
-                util::IComparable::Criterion::EQUIVALENT)) {
-            srcCRS = sourceCRSCompound->componentReferenceSystems()[1].get();
-            tgtCRS = targetCRSCompound->componentReferenceSystems()[1].get();
-        }
-
-        auto sourceCRSVert = dynamic_cast<const crs::VerticalCRS *>(srcCRS);
-        if (!sourceCRSVert) {
-            throw io::FormattingException(
-                "Can apply Vertical offset only to VerticalCRS");
-        }
-
-        auto targetCRSVert = dynamic_cast<const crs::VerticalCRS *>(tgtCRS);
-        if (!targetCRSVert) {
-            throw io::FormattingException(
-                "Can apply Vertical offset only to VerticalCRS");
-        }
-
-        auto offsetHeight =
-            parameterValueNumericAsSI(EPSG_CODE_PARAMETER_VERTICAL_OFFSET);
-
-        formatter->startInversion();
-        sourceCRSVert->addLinearUnitConvert(formatter);
-        formatter->stopInversion();
-
-        formatter->addStep("geogoffset");
-        formatter->addParam("dh", offsetHeight);
-
-        targetCRSVert->addLinearUnitConvert(formatter);
-
-        return;
-    }
-
-    // Substitute grid names with PROJ friendly names.
-    if (formatter->databaseContext()) {
-        auto alternate = substitutePROJAlternativeGridNames(
-            NN_NO_CHECK(formatter->databaseContext()));
-        auto self = NN_NO_CHECK(std::dynamic_pointer_cast<Transformation>(
-            shared_from_this().as_nullable()));
-
-        if (alternate != self) {
-            alternate->_exportToPROJString(formatter);
-            return;
-        }
-    }
-
-    const bool isMethodInverseOf = starts_with(methodName, INVERSE_OF);
-
-    const auto &NTv1Filename = _getNTv1Filename(this, true);
-    const auto &NTv2Filename = _getNTv2Filename(this, true);
-    const auto &CTABLE2Filename = _getCTABLE2Filename(this, true);
-    const auto &HorizontalShiftGTIFFFilename =
-        _getHorizontalShiftGTIFFFilename(this, true);
-    const auto &hGridShiftFilename =
-        !HorizontalShiftGTIFFFilename.empty()
-            ? HorizontalShiftGTIFFFilename
-            : !NTv1Filename.empty()
-                  ? NTv1Filename
-                  : !NTv2Filename.empty() ? NTv2Filename : CTABLE2Filename;
-    if (!hGridShiftFilename.empty()) {
-        auto sourceCRSGeog =
-            extractGeographicCRSIfGeographicCRSOrEquivalent(sourceCRS());
-        if (!sourceCRSGeog) {
-            throw io::FormattingException(
-                concat("Can apply ", methodName, " only to GeographicCRS"));
-        }
-
-        auto targetCRSGeog =
-            extractGeographicCRSIfGeographicCRSOrEquivalent(targetCRS());
-        if (!targetCRSGeog) {
-            throw io::FormattingException(
-                concat("Can apply ", methodName, " only to GeographicCRS"));
-        }
-
-        formatter->startInversion();
-        sourceCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-        formatter->stopInversion();
-
-        if (isMethodInverseOf) {
-            formatter->startInversion();
-        }
-        formatter->addStep("hgridshift");
-        formatter->addParam("grids", hGridShiftFilename);
-        if (isMethodInverseOf) {
-            formatter->stopInversion();
-        }
-
-        targetCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-
-        return;
-    }
-
-    const auto &geocentricTranslationFilename =
-        _getGeocentricTranslationFilename(this, true);
-    if (!geocentricTranslationFilename.empty()) {
-        auto sourceCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(sourceCRS().get());
-        if (!sourceCRSGeog) {
-            throw io::FormattingException(
-                concat("Can apply ", methodName, " only to GeographicCRS"));
-        }
-
-        auto targetCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(targetCRS().get());
-        if (!targetCRSGeog) {
-            throw io::FormattingException(
-                concat("Can apply ", methodName, " only to GeographicCRS"));
-        }
-
-        const auto &interpCRS = interpolationCRS();
-        if (!interpCRS) {
-            throw io::FormattingException(
-                "InterpolationCRS required "
-                "for"
-                " " EPSG_NAME_METHOD_GEOCENTRIC_TRANSLATION_BY_GRID_INTERPOLATION_IGN);
-        }
-        const bool interpIsSrc = interpCRS->_isEquivalentTo(
-            sourceCRS().get(), util::IComparable::Criterion::EQUIVALENT);
-        const bool interpIsTarget = interpCRS->_isEquivalentTo(
-            targetCRS().get(), util::IComparable::Criterion::EQUIVALENT);
-        if (!interpIsSrc && !interpIsTarget) {
-            throw io::FormattingException(
-                "For"
-                " " EPSG_NAME_METHOD_GEOCENTRIC_TRANSLATION_BY_GRID_INTERPOLATION_IGN
-                ", interpolation CRS should be the source or target CRS");
-        }
-
-        formatter->startInversion();
-        sourceCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-        formatter->stopInversion();
-
-        if (isMethodInverseOf) {
-            formatter->startInversion();
-        }
-
-        formatter->addStep("push");
-        formatter->addParam("v_3");
-
-        formatter->addStep("cart");
-        sourceCRSGeog->ellipsoid()->_exportToPROJString(formatter);
-
-        formatter->addStep("xyzgridshift");
-        formatter->addParam("grids", geocentricTranslationFilename);
-        formatter->addParam("grid_ref",
-                            interpIsTarget ? "output_crs" : "input_crs");
-        (interpIsTarget ? targetCRSGeog : sourceCRSGeog)
-            ->ellipsoid()
-            ->_exportToPROJString(formatter);
-
-        formatter->startInversion();
-        formatter->addStep("cart");
-        targetCRSGeog->ellipsoid()->_exportToPROJString(formatter);
-        formatter->stopInversion();
-
-        formatter->addStep("pop");
-        formatter->addParam("v_3");
-
-        if (isMethodInverseOf) {
-            formatter->stopInversion();
-        }
-
-        targetCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-
-        return;
-    }
-
-    const auto &heightFilename = _getHeightToGeographic3DFilename(this, true);
-    if (!heightFilename.empty()) {
-        auto targetCRSGeog =
-            extractGeographicCRSIfGeographicCRSOrEquivalent(targetCRS());
-        if (!targetCRSGeog) {
-            throw io::FormattingException(
-                concat("Can apply ", methodName, " only to GeographicCRS"));
-        }
-
-        if (!formatter->omitHorizontalConversionInVertTransformation()) {
-            formatter->startInversion();
-            formatter->pushOmitZUnitConversion();
-            targetCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-            formatter->popOmitZUnitConversion();
-            formatter->stopInversion();
-        }
-
-        if (isMethodInverseOf) {
-            formatter->startInversion();
-        }
-        formatter->addStep("vgridshift");
-        formatter->addParam("grids", heightFilename);
-        formatter->addParam("multiplier", 1.0);
-        if (isMethodInverseOf) {
-            formatter->stopInversion();
-        }
-
-        if (!formatter->omitHorizontalConversionInVertTransformation()) {
-            formatter->pushOmitZUnitConversion();
-            targetCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-            formatter->popOmitZUnitConversion();
-        }
-
-        return;
-    }
-
-    if (isGeographic3DToGravityRelatedHeight(method(), true)) {
-        auto fileParameter =
-            parameterValue(EPSG_NAME_PARAMETER_GEOID_CORRECTION_FILENAME,
-                           EPSG_CODE_PARAMETER_GEOID_CORRECTION_FILENAME);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-            auto filename = fileParameter->valueFile();
-
-            auto sourceCRSGeog =
-                extractGeographicCRSIfGeographicCRSOrEquivalent(sourceCRS());
-            if (!sourceCRSGeog) {
-                throw io::FormattingException(
-                    concat("Can apply ", methodName, " only to GeographicCRS"));
-            }
-
-            if (!formatter->omitHorizontalConversionInVertTransformation()) {
-                formatter->startInversion();
-                formatter->pushOmitZUnitConversion();
-                sourceCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-                formatter->popOmitZUnitConversion();
-                formatter->stopInversion();
-            }
-
-            bool doInversion = isMethodInverseOf;
-            // The EPSG Geog3DToHeight is the reverse convention of PROJ !
-            doInversion = !doInversion;
-            if (doInversion) {
-                formatter->startInversion();
-            }
-            formatter->addStep("vgridshift");
-            formatter->addParam("grids", filename);
-            formatter->addParam("multiplier", 1.0);
-            if (doInversion) {
-                formatter->stopInversion();
-            }
-
-            if (!formatter->omitHorizontalConversionInVertTransformation()) {
-                formatter->pushOmitZUnitConversion();
-                sourceCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-                formatter->popOmitZUnitConversion();
-            }
-
-            return;
-        }
-    }
-
-    if (methodEPSGCode == EPSG_CODE_METHOD_VERTCON) {
-        auto fileParameter =
-            parameterValue(EPSG_NAME_PARAMETER_VERTICAL_OFFSET_FILE,
-                           EPSG_CODE_PARAMETER_VERTICAL_OFFSET_FILE);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-            formatter->addStep("vgridshift");
-            formatter->addParam("grids", fileParameter->valueFile());
-            if (fileParameter->valueFile().find(".tif") != std::string::npos) {
-                formatter->addParam("multiplier", 1.0);
-            } else {
-                // The vertcon grids go from NGVD 29 to NAVD 88, with units
-                // in millimeter (see
-                // https://github.com/OSGeo/proj.4/issues/1071), for gtx files
-                formatter->addParam("multiplier", 0.001);
-            }
-            return;
-        }
-    }
-
-    if (methodEPSGCode == EPSG_CODE_METHOD_VERTICALGRID_NZLVD ||
-        methodEPSGCode == EPSG_CODE_METHOD_VERTICALGRID_BEV_AT ||
-        methodEPSGCode == EPSG_CODE_METHOD_VERTICALGRID_GTX ||
-        methodEPSGCode == EPSG_CODE_METHOD_VERTICALGRID_PL_TXT) {
-        auto fileParameter =
-            parameterValue(EPSG_NAME_PARAMETER_VERTICAL_OFFSET_FILE,
-                           EPSG_CODE_PARAMETER_VERTICAL_OFFSET_FILE);
-        if (fileParameter &&
-            fileParameter->type() == ParameterValue::Type::FILENAME) {
-            formatter->addStep("vgridshift");
-            formatter->addParam("grids", fileParameter->valueFile());
-            formatter->addParam("multiplier", 1.0);
-            return;
-        }
-    }
-
-    if (isLongitudeRotation()) {
-        double offsetDeg =
-            parameterValueNumeric(EPSG_CODE_PARAMETER_LONGITUDE_OFFSET,
-                                  common::UnitOfMeasure::DEGREE);
-
-        auto sourceCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(sourceCRS().get());
-        if (!sourceCRSGeog) {
-            throw io::FormattingException(
-                concat("Can apply ", methodName, " only to GeographicCRS"));
-        }
-
-        auto targetCRSGeog =
-            dynamic_cast<const crs::GeographicCRS *>(targetCRS().get());
-        if (!targetCRSGeog) {
-            throw io::FormattingException(
-                concat("Can apply ", methodName + " only to GeographicCRS"));
-        }
-
-        if (!sourceCRSGeog->ellipsoid()->_isEquivalentTo(
-                targetCRSGeog->ellipsoid().get(),
-                util::IComparable::Criterion::EQUIVALENT)) {
-            // This is arguable if we should check this...
-            throw io::FormattingException("Can apply Longitude rotation "
-                                          "only to SRS with same "
-                                          "ellipsoid");
-        }
-
-        formatter->startInversion();
-        sourceCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-        formatter->stopInversion();
-
-        bool done = false;
-        if (offsetDeg != 0.0) {
-            // Optimization: as we are doing nominally a +step=inv,
-            // if the negation of the offset value is a well-known name,
-            // then use forward case with this name.
-            auto projPMName = datum::PrimeMeridian::getPROJStringWellKnownName(
-                common::Angle(-offsetDeg));
-            if (!projPMName.empty()) {
-                done = true;
-                formatter->addStep("longlat");
-                sourceCRSGeog->ellipsoid()->_exportToPROJString(formatter);
-                formatter->addParam("pm", projPMName);
-            }
-        }
-        if (!done) {
-            // To actually add the offset, we must use the reverse longlat
-            // operation.
-            formatter->startInversion();
-            formatter->addStep("longlat");
-            sourceCRSGeog->ellipsoid()->_exportToPROJString(formatter);
-            datum::PrimeMeridian::create(util::PropertyMap(),
-                                         common::Angle(offsetDeg))
-                ->_exportToPROJString(formatter);
-            formatter->stopInversion();
-        }
-
-        targetCRSGeog->addAngularUnitConvertAndAxisSwap(formatter);
-
-        return;
-    }
-
     if (exportToPROJStringGeneric(formatter)) {
         return;
     }
 
-    throw io::FormattingException("Unimplemented");
+    throw io::FormattingException("Unimplemented " + nameStr());
 }
 
 } // namespace operation

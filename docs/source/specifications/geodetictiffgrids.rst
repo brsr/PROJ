@@ -35,8 +35,7 @@ is an easy way to inspect such grid files:
   to readers that are not official GeoTIFF 1.1 compliant.
 
 - Files hosted on the CDN will use a Geographic 2D CRS for the GeoTIFF GeoKeys.
-  That CRS is intended to be the interpolation CRS as defined in
-  `OGC Abstract Specification Topic 2 <http://docs.opengeospatial.org/as/18-005r4/18-005r4.html>`_,
+  That CRS is intended to be the interpolation CRS as defined in :cite:`ISO19111`,
   that is the CRS to which grid values are referred to.
 
   Given that they will nominally be related to the EPSG dataset, the `GeodeticCRSGeoKey
@@ -213,9 +212,31 @@ is an easy way to inspect such grid files:
     Values recognized by PROJ currently are:
 
     - ``HORIZONTAL_OFFSET``: implies the presence of at least two samples.
-      The first sample must contain the latitude offset and the second
-      sample must contain the longitude offset.
-      Corresponds to PROJ :ref:`hgridshift` method.
+      For grids referenced in geographic coordinates, the first sample must
+      contain the latitude offset and the second sample must contain the
+      longitude offset.
+      For grids referenced in projected coordinates (supported since PROJ 9.4),
+      the first sample must contain the easting offset and the second sample
+      must contain the northing offset.
+      The offset may also be expressed as a speed per year for temporal gridshifting.
+      Corresponds to PROJ :ref:`hgridshift` (only for grids referenced in
+      geographic coordinates) and :ref:`gridshift` methods (for grids referenced
+      both in geographic and projected coordinates)
+
+    - ``GEOGRAPHIC_3D_OFFSET``: implies the presence of at least 3 samples.
+      The first sample must contain the latitude offset, the second
+      sample must contain the longitude offset and the third one the ellipsoidal
+      height difference. Typically used for NADCON5 grids.
+      Added in PROJ 9.2
+      Corresponds to PROJ :ref:`gridshift` method.
+
+    - ``ELLIPSOIDAL_HEIGHT_OFFSET``: implies the presence of one sample with
+      the ellipsoidal height difference. Generally used in combination with
+      another grid of type ``HORIZONTAL_OFFSET`` to perform Geographic 3D
+      offsetting when the horizontal and vertical grids do not have the same
+      resolution, as found in some NADCON5 grids.
+      Added in PROJ 9.2
+      Corresponds to PROJ :ref:`gridshift` method.
 
     - ``VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL``: implies the presence of at least one sample.
       The first sample must contain the vertical adjustment. Must be used when
@@ -253,13 +274,28 @@ is an easy way to inspect such grid files:
 
     Values recognized by PROJ for this Item are currently:
 
-    + ``latitude_offset``: valid for TYPE=HORIZONTAL_OFFSET. Sample values should be
+    + ``latitude_offset``: valid for TYPE=HORIZONTAL_OFFSET or
+      GEOGRAPHIC_3D_OFFSET . Sample values should be
       the value to add a latitude expressed in the CRS encoded in the GeoKeys
       to obtain a latitude value expressed in the target CRS.
 
-    + ``longitude_offset``: valid for TYPE=HORIZONTAL_OFFSET. Sample values should be
+    + ``longitude_offset``: valid for TYPE=HORIZONTAL_OFFSET or
+      GEOGRAPHIC_3D_OFFSET . Sample values should be
       the value to add a longitude expressed in the CRS encoded in the GeoKeys
       to obtain a longitude value expressed in the target CRS.
+
+    + ``easting_offset``: valid for TYPE=HORIZONTAL_OFFSET. Sample values should be
+      the value to add a easting expressed in the CRS encoded in the GeoKeys
+      to obtain a easting value expressed in the target CRS.
+
+    + ``northing_offset``: valid for TYPE=HORIZONTAL_OFFSET. Sample values should be
+      the value to add a northing expressed in the CRS encoded in the GeoKeys
+      to obtain a northing value expressed in the target CRS.
+
+    + ``ellipsoidal_height_offset``: valid for TYPE=ELLIPSOIDAL_HEIGHT_OFFSET or
+      GEOGRAPHIC_3D_OFFSET . Sample values should be the value to add to the
+      ellipsoidal height of the source CRS to obtain the ellipsoidal height of
+      the target CRS.
 
     + ``geoid_undulation``: valid for TYPE=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL.
       For a source CRS being a geographic CRS and a target CRS being a vertical CRS,
@@ -267,10 +303,24 @@ is an easy way to inspect such grid files:
       is expressed in the target CRS) to
       get an ellipsoidal height (that is expressed in the source CRS), also
       called the geoid undulation.
+      The value is positive upward from the reference ellipsoid.
       Note the possible confusion related to what is the source CRS and target CRS and
       the semantics of the value stored (to convert from the source to the target,
       one must subtract the value contained in the grid). This is the convention
-      used by the `EPSG:9665 <https://www.epsg-registry.org/export.htm?gml=urn:ogc:def:method:EPSG::9665>`_
+      used by the `EPSG:9665 <https://epsg.org/coord-operation-method_9665/Geographic3D-to-GravityRelatedHeight-gtx.html>`_
+      operation method.
+
+    + ``hydroid_height``: valid for TYPE=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL.
+      For a source CRS being a geographic CRS and a target CRS being a vertical CRS
+      representing a tidal surface (typically Chart Datum, Highest/Lowest Astronomical
+      Tide (HAT/LAT), High/Low Waters, Mean Sea Level), the hydroid height is
+      the value to add to a height related to a tidal surface (that is expressed
+      in the target CRS) to get an ellipsoidal height (that is expressed in the source CRS).
+      The value is positive upward from the reference ellipsoid.
+      Note the possible confusion related to what is the source CRS and target CRS and
+      the semantics of the value stored (to convert from the source to the target,
+      one must subtract the value contained in the grid). This is the convention
+      used by the `EPSG:1115 <https://epsg.org/coord-operation-method_1115/Geographic3D-to-GravityRelatedDepth-txt.html>`_
       operation method.
 
     + ``vertical_offset``: valid for TYPE=VERTICAL_OFFSET_VERTICAL_TO_VERTICAL.
@@ -330,6 +380,7 @@ is an easy way to inspect such grid files:
 
     - ``degree``
     - ``arc-second`` (default value assumed if absent for longitude and latitude offset samples of horizontal shift grid files, and value used for files stored on PROJ CDN)
+    - ``arc-seconds per year`` (when used with the :ref:`hgridshift` method with temporal gridshifting)
 
     For velocity units:
 
@@ -345,6 +396,19 @@ is an easy way to inspect such grid files:
 
         <Item name="UNITTYPE" sample="0" role="unittype">arc-second</Item>
         <Item name="UNITTYPE" sample="1" role="unittype">arc-second</Item>
+
+  * For grids with TYPE=HORIZONTAL_OFFSET and with a ``easting_offset`` and
+    ``northing_offset`` channel, an extra offset to apply after the grid correction
+    in the forward direction of the transformation can be specified with a
+    ``constant_offset`` metadata item, expressed in the same units as the grid
+    values (only metre supported at the moment).
+
+    Example:
+
+    .. code-block:: xml
+
+        <Item name="constant_offset" sample="0">-5000000</Item>
+        <Item name="constant_offset" sample="1">-5000000</Item>
 
   * For TYPE=DEFORMATION_MODEL, the type of the displacement must be specified
     with a `Item` whose ``name`` is set to ``DISPLACEMENT_TYPE``.
@@ -368,7 +432,7 @@ is an easy way to inspect such grid files:
     ``target_crs_epsg_code`` cannot be used.
     Its value should be a valid WKT string according to
     `WKT:2015 <http://docs.opengeospatial.org/is/12-063r5/12-063r5.html>`_
-    or `WKT:2019 <hhttp://docs.opengeospatial.org/is/18-010r7/18-010r7.html>`_
+    or `WKT:2019 <http://docs.opengeospatial.org/is/18-010r7/18-010r7.html>`_
     Ignored by PROJ currently.
 
   * The ``source_crs_epsg_code`` metadata item must be present if the source
@@ -413,6 +477,10 @@ is an easy way to inspect such grid files:
     subgrids for this grid (that is grids whose extent is contained in the extent
     of this grid).
     Will be ignored by PROJ (this information can be inferred by the grids extent)
+
+  * The ``interpolation_method`` metadata item may be present to indicate the
+    interpolation method to apply. ``bilinear`` or ``biquadratic`` are supported.
+    If not specified, defaults to ``bilinear``.
 
 Example
 +++++++
@@ -636,10 +704,18 @@ It contains 5 subgrids. All essential metadata to list the subgrids and their
 georeferencing is contained within the first 3 KB of the file.
 
 The file size is 4.8 MB using DEFLATE compression and floating-point predictor.
-To be compared with the 83 MB of the original .gsb file.
+It results from a lossless conversion from the 83 MB of the original .gsb file.
 
 https://github.com/OSGeo/PROJ-data/blob/master/ca_nrc/ca_nrc_ntv2_0.tif has
 been converted from https://github.com/OSGeo/proj-datumgrid/blob/master/north-america/ntv2_0.gsb
 
 It contains 114 subgrids. All essential metadata to list the subgrids and their
 georeferencing is contained within the first 40 KB of the file.
+
+Revisions
++++++++++
+
+* v0.3: addition of TYPE=GEOGRAPHIC_3D_OFFSET, ELLIPSOIDAL_HEIGHT_OFFSET and
+        interpolation_method (PROJ 9.2)
+* v0.2: addition of "arc-seconds per year" as a valid unit (PROJ 9.1.1)
+* v0.1: initial version for PROJ 7.0

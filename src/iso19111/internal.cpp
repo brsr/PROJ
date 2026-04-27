@@ -32,6 +32,7 @@
 
 #include "proj/internal/internal.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #ifdef _MSC_VER
@@ -128,8 +129,9 @@ std::string tolower(const std::string &str)
 
 {
     std::string ret(str);
-    for (size_t i = 0; i < ret.size(); i++)
-        ret[i] = static_cast<char>(::tolower(ret[i]));
+    for (char &ch : ret)
+        ch =
+            (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch + ('a' - 'A')) : ch;
     return ret;
 }
 
@@ -143,8 +145,9 @@ std::string toupper(const std::string &str)
 
 {
     std::string ret(str);
-    for (size_t i = 0; i < ret.size(); i++)
-        ret[i] = static_cast<char>(::toupper(ret[i]));
+    for (char &ch : ret)
+        ch =
+            (ch >= 'a' && ch <= 'z') ? static_cast<char>(ch - ('a' - 'A')) : ch;
     return ret;
 }
 
@@ -240,7 +243,17 @@ bool ends_with(const std::string &str, const std::string &suffix) noexcept {
 // ---------------------------------------------------------------------------
 
 double c_locale_stod(const std::string &s) {
+    bool success;
+    double val = c_locale_stod(s, success);
+    if (!success) {
+        throw std::invalid_argument("non double value");
+    }
+    return val;
+}
 
+double c_locale_stod(const std::string &s, bool &success) {
+
+    success = true;
     const auto s_size = s.size();
     // Fast path
     if (s_size > 0 && s_size < 15) {
@@ -277,7 +290,8 @@ double c_locale_stod(const std::string &s) {
     double d;
     iss >> d;
     if (!iss.eof() || iss.fail()) {
-        throw std::invalid_argument("non double value");
+        success = false;
+        d = 0;
     }
     return d;
 }
@@ -380,6 +394,17 @@ std::string concat(const char *a, const std::string &b, const char *c) {
     res += b;
     res += c;
     return res;
+}
+
+// ---------------------------------------------------------------------------
+
+// Avoid rounding issues due to year -> second (SI unit) -> year roundtrips
+double getRoundedEpochInDecimalYear(double year) {
+    // Try to see if the value is close to xxxx.yyy decimal year.
+    if (std::fabs(1000 * year - std::round(1000 * year)) <= 1e-3) {
+        year = std::round(1000 * year) / 1000.0;
+    }
+    return year;
 }
 
 // ---------------------------------------------------------------------------

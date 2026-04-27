@@ -53,6 +53,12 @@
 
 namespace TINSHIFT_NAMESPACE {
 
+enum FallbackStrategy {
+    FALLBACK_NONE,
+    FALLBACK_NEAREST_SIDE,
+    FALLBACK_NEAREST_CENTROID,
+};
+
 using json = nlohmann::json;
 
 // ---------------------------------------------------------------------------
@@ -62,7 +68,7 @@ class TINShiftFile {
   public:
     /** Parse the provided serialized JSON content and return an object.
      *
-     * @throws ParsingException
+     * @throws ParsingException in case of error.
      */
     static std::unique_ptr<TINShiftFile> parse(const std::string &text);
 
@@ -92,6 +98,10 @@ class TINShiftFile {
     /** Get a text description of the model. Intended to be longer than name()
      */
     const std::string &publicationDate() const { return mPublicationDate; }
+
+    const enum FallbackStrategy &fallbackStrategy() const {
+        return mFallbackStrategy;
+    }
 
     /** Basic information on the agency responsible for the model. */
     struct Authority {
@@ -204,6 +214,7 @@ class TINShiftFile {
     std::string mLicense{};
     std::string mDescription{};
     std::string mPublicationDate{};
+    enum FallbackStrategy mFallbackStrategy {};
     Authority mAuthority{};
     std::vector<Link> mLinks{};
     std::string mInputCRS{};

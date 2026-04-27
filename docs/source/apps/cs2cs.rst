@@ -13,7 +13,9 @@ Synopsis
 
     | **cs2cs** [**-eEfIlrstvwW** [args]]
     |           [[--area <name_or_code>] | [--bbox <west_long,south_lat,east_long,north_lat>]]
-    |           [--authority <name>] [--no-ballpark] [--accuracy <accuracy>]
+    |           [--authority <name>] [--3d]
+    |           [--accuracy <accuracy>] [--only-best[=yes|=no]] [--no-ballpark]
+    |           [--s_epoch {epoch}] [--t_epoch {epoch}]
     |           ([*+opt[=arg]* ...] [+to *+opt[=arg]* ...] | {source_crs} {target_crs})
     |           file ...
 
@@ -26,6 +28,7 @@ Synopsis
       "urn:ogc:def:coordinateOperation:EPSG::1671"),
     - an Object name. e.g "WGS 84", "WGS 84 / UTM zone 31N". In that case as
       uniqueness is not guaranteed, heuristics are applied to determine the appropriate best match.
+    - a CRS name and a coordinate epoch, separated with '@'. For example "ITRF2014@2025.0". (*added in 9.2*)
     - a OGC URN combining references for compound coordinate reference systems
       (e.g "urn:ogc:def:crs,crs:EPSG::2393,crs:EPSG::5717" or custom abbreviated
       syntax "EPSG:2393+5717"),
@@ -35,7 +38,7 @@ Synopsis
       (*added in 6.2*)
     - a OGC URN combining references for concatenated operations
       (e.g. "urn:ogc:def:coordinateOperation,coordinateOperation:EPSG::3895,coordinateOperation:EPSG::1618")
-    - a PROJJSON string. The jsonschema is at https://proj.org/schemas/v0.2/projjson.schema.json (*added in 6.2*)
+    - a PROJJSON string. The jsonschema is at https://proj.org/schemas/v0.4/projjson.schema.json (*added in 6.2*)
     - a compound CRS made from two object names separated with " + ". e.g. "WGS 84 + EGM96 height" (*added in 7.1*)
 
     .. versionadded:: 6.0.0
@@ -57,8 +60,7 @@ The following control parameters can appear in any order:
 
 .. option:: -I
 
-    Method to specify inverse translation, convert from *+to* coordinate system to
-    the primary coordinate system defined.
+    Perform the inverse transformation, that is from target CRS to source CRS.
 
 .. option:: -t<a>
 
@@ -70,7 +72,7 @@ The following control parameters can appear in any order:
 
     .. versionadded:: 5.2.0
 
-    Specify the number of decimals in the output.
+    Specify the number of decimals to round to in the output.
 
 .. option:: -e <string>
 
@@ -100,6 +102,12 @@ The following control parameters can appear in any order:
 .. option:: -le
 
     List of all ellipsoids that can be selected with the *+ellps* parameters.
+
+.. option:: -lm
+
+    List of hard-coded prime meridians that can be selected with the *+pm*
+    parameter.  Note that this list is no longer updated,
+    and some values may conflict with other sources.
 
 .. option:: -lu
 
@@ -137,7 +145,7 @@ The following control parameters can appear in any order:
 
     Where *n* is the number of significant fractional digits to employ for seconds
     output. When ``-W`` is employed the fields will be constant width
-    with leading zeroes.
+    with leading zeroes. Valid range: -W0 through -W8.
 
 .. option:: -v
 
@@ -165,6 +173,23 @@ The following control parameters can appear in any order:
     `west_long` and `east_long` should be in the [-180,180] range, and
     `south_lat` and `north_lat` in the [-90,90]. `west_long` is generally lower than
     `east_long`, except in the case where the area of interest crosses the antimeridian.
+
+.. option:: --only-best[=yes|=no]
+
+    .. versionadded:: 9.2.0
+
+    Force `cs2cs` to only use the best transformation known by PROJ.
+    `cs2cs` will return an error if a grid needed for the best transformation is missing.
+
+    Best transformation should be understood as the most accurate transformation
+    available among all relevant for the point to transform, and if all known
+    grids required to perform such transformation were accessible (either locally
+    or through network).
+
+    Note that the default value for this option can be also set with the
+    :envvar:`PROJ_ONLY_BEST_DEFAULT` environment variable, or with the
+    ``only_best_default`` setting of :ref:`proj-ini` (:option:`--only-best`
+    when specified overrides such default value).
 
 .. option:: --no-ballpark
 
@@ -194,6 +219,31 @@ The following control parameters can appear in any order:
 
     This option is mutually exclusive with :option:`--bbox`.
 
+.. option:: --3d
+
+    .. versionadded:: 9.1
+
+    "Promote" 2D CRS(s) to their 3D version, where the vertical axis is the
+    ellipsoidal height in metres, using the ellipsoid of the base geodetic CRS.
+    Depending on PROJ versions and the exact nature of the CRS involved,
+    especially before PROJ 9.1, a mix of 2D and 3D CRS could lead to 2D or 3D
+    transformations. Starting with PROJ 9.1, both CRS need to be 3D for vertical
+    transformation to possibly happen.
+
+.. option:: --s_epoch
+
+    .. versionadded:: 9.4
+
+    Epoch of coordinates in the source CRS, as decimal year.
+    Only applies to a dynamic CRS.
+
+.. option:: --t_epoch
+
+    .. versionadded:: 9.4
+
+    Epoch of coordinates in the target CRS, as decimal year.
+    Only applies to a dynamic CRS.
+
 .. only:: man
 
     The *+opt* run-line arguments are associated with cartographic
@@ -205,11 +255,11 @@ The following control parameters can appear in any order:
     parameters. Usage varies with projection and for a complete description
     consult the :ref:`projection pages <projections>`.
 
-The :program:`cs2cs` program requires two coordinate reference system (CRS) definitions. The first (or
-primary is defined based on all projection parameters not appearing after the
-*+to* argument. All projection parameters appearing after the *+to* argument
-are considered the definition of the second CRS. If there is no
-second CRS defined, a geographic CRS based on the
+The :program:`cs2cs` program takes two coordinate reference system (CRS) definitions.
+These can be given in a variety of formats such as EPSG-codes, WKT-strings or legacy PROJ.4
+CRS descriptions.
+
+If there is no second CRS defined, a geographic CRS based on the
 datum and ellipsoid of the source CRS is assumed. Note that the
 source and destination CRS can both of same or different nature (geographic,
 projected, compound CRS), or one of each and may have the same or different datums.
@@ -222,7 +272,7 @@ Internally, :program:`cs2cs` uses the :c:func:`proj_create_crs_to_crs` function
 to compute the appropriate coordinate operation, so implementation details of
 this function directly impact the results returned by the program.
 
-The environment parameter :envvar:`PROJ_LIB` establishes the
+The environment parameter :envvar:`PROJ_DATA` establishes the
 directory for resource files (database, datum shift grids, etc.)
 
 One or more files (processed in left to right order) specify the source of
@@ -253,29 +303,6 @@ More details are available in the :ref:`network` section.
 Examples
 ********
 
-Using PROJ strings
-------------------
-
-The following script
-
-::
-
-    cs2cs +proj=latlong +datum=NAD83 +to +proj=utm +zone=10 +datum=NAD27 -r <<EOF
-    45d15'33.1" 111.5W
-    45d15.551666667N -111d30
-    +45.25919444444 111d30'000w
-    EOF
-
-will transform the input NAD83 geographic coordinates into NAD27 coordinates in
-the UTM projection with zone 10 selected. The geographic values of this
-example are equivalent and meant as examples of various forms of DMS input.
-The x-y output data will appear as three lines of:
-
-::
-
-    1402293.44  5076292.68 0.00
-
-
 Using EPSG CRS codes
 --------------------
 
@@ -301,13 +328,76 @@ UTM Zone 31N/WGS 84 with WGS84 ellipsoidal height
 
 ::
 
-    echo 45 2 0 | cs2cs "WGS 84 + EGM96 height" "WGS 84 / UTM zone 31N"
+    echo 45 2 0 | cs2cs "WGS 84 + EGM96 height" "WGS 84 / UTM zone 31N" --3d
 
 outputs
 
 ::
 
     421184.70   4983436.77 50.69
+
+
+.. note::
+
+    To get those exact values, you have need to have the EGM96 grid installed
+    locally or use networking capabilities mentioned above.
+
+Using PROJ strings
+------------------
+
+The following script
+
+::
+
+    cs2cs +proj=latlong +datum=NAD83 +to +proj=utm +zone=10 +datum=NAD27 -r <<EOF
+    45°15'33.1" 111.5W
+    45d15.551666667N -111d30
+    +45.25919444444 111d30'000w
+    EOF
+
+will transform the input NAD83 geographic coordinates into NAD27 coordinates in
+the UTM projection with zone 10 selected. The geographic values of this
+example are equivalent and meant as examples of various forms of DMS input.
+The x-y output data will appear as three lines of:
+
+::
+
+    1402285.93  5076292.58 0.00
+
+
+To get those exact values, you have need to have all current grids installed
+(in that instance the NADCON5 :file:`us_noaa_nadcon5_nad27_nad83_1986_conus.tif` grid)
+locally or use networking capabilities mentioned above.
+
+To make sure you will get the optimal result, you may add :option:`--only-best`.
+Assuming the above mentioned grid is *not* available,
+
+::
+
+    echo -111.5 45.25919444444 | cs2cs --only-best +proj=latlong +datum=NAD83 +to +proj=utm +zone=10 +datum=NAD27
+
+would return:
+
+::
+
+    Attempt to use coordinate operation axis order change (2D) + Inverse of NAD27 to NAD83 (7) + axis order change (2D) + UTM zone 10N failed. Grid us_noaa_nadcon5_nad27_nad83_1986_conus.tif is not available. Consult https://proj.org/resource_files.html for guidance.
+    *   * inf
+
+Otherwise, if you don't have the grid available and you don't specify :option:`--only-best`:
+
+::
+
+    echo -111.5 45.25919444444 | cs2cs --only-best +proj=latlong +datum=NAD83 +to +proj=utm +zone=10 +datum=NAD27
+
+would return:
+
+::
+
+    1402224.57  5076275.42 0.00
+
+which is the result when the NAD27 and NAD83 datums are dealt as identical,
+which is an approximation at a level of several tens of metres.
+
 
 
 .. only:: man

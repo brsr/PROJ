@@ -125,7 +125,7 @@ for sectiondef in compounddef.iter('sectiondef'):
             header.write("PJ PROJ_DLL *" + decl + ";\n\n")
 
             briefdescription = func.find('briefdescription/para').xpath("normalize-space()")
-            briefdescription = briefdescription.replace("Instanciate ", "Instanciate a ProjectedCRS with ")
+            briefdescription = briefdescription.replace("Instantiate ", "Instantiate a ProjectedCRS with ")
 
             cppfile.write("// ---------------------------------------------------------------------------\n\n")
             cppfile.write("/** \\brief " + briefdescription + "\n")
@@ -167,8 +167,11 @@ for sectiondef in compounddef.iter('sectiondef'):
             test_cppfile.write("{\n")
             test_cppfile.write("    auto projCRS = proj_create_conversion_" + c_shortName + "(\n")
             test_cppfile.write("        m_ctxt")
-            for param in params:
-                test_cppfile.write(", 0")
+            if c_shortName == 'utm':
+                test_cppfile.write(", 1")
+            else:
+                for param in params:
+                    test_cppfile.write(", 0")
             if has_angle:
                 test_cppfile.write(", \"Degree\", 0.0174532925199433")
             if has_linear:

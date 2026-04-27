@@ -1,26 +1,18 @@
 -- This file is hand generated.
 
+-- Belgium
+
+-- FIXME: remove this record when EPSG has fixed that issue
+INSERT INTO "grid_transformation" VALUES('PROJ','BD72_TO_BEREF2002','BD72 to ETRS89-BEL [BEREF2002] (3)','Copy of BD72 to ETRS89-BEL [BEREF2011] (3) EPSG:8369','EPSG','9615','NTv2','EPSG','4313','EPSG','11063',0.01,'EPSG','8656','Latitude and longitude difference file','bd72lb72_etrs89lb08.gsb',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'IGN-Bel 0.01m',0);
+INSERT INTO "usage" VALUES('PROJ','BD72_TO_BEREF2002_USAGE','grid_transformation','PROJ','BD72_TO_BEREF2002','EPSG','1347','EPSG','1150');
+
+-- Catalonia
+
+-- FIXME: remove this record when EPSG has fixed that issue
+INSERT INTO "grid_transformation" VALUES('PROJ','ED50_TO_ETRS89_CATALONIA','ED50 to ETRS89 (14)','Copy of ED50 to ETRS89-ESP [REGENTE] (14) EPSG:5661','EPSG','9615','NTv2','EPSG','4230','EPSG','4258',0.05,'EPSG','8656','Latitude and longitude difference file','100800401.gsb',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'ICC-Esp Cat',0);
+INSERT INTO "usage" VALUES('PROJ','ED50_TO_ETRS89_CATALONIA_USAGE','grid_transformation','PROJ','ED50_TO_ETRS89_CATALONIA','EPSG','3732','EPSG','1079');
+
 -- Denmark
-
-INSERT INTO "grid_transformation" VALUES(
-    'PROJ','EPSG_4937_TO_EPSG_5799','ETRS89 to DVR90 height',
-    NULL,
-    'EPSG','9665','Geographic3D to GravityRelatedHeight (gtx)',
-    'EPSG','4937', -- source CRS (ETRS89)
-    'EPSG','5799', -- target CRS (DVR90 height)
-    NULL,
-    'EPSG','8666','Geoid (height correction) model file','dvr90.gtx',
-    NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);
-
-INSERT INTO "usage" VALUES(
-    'PROJ',
-    'EPSG_4937_TO_EPSG_5799_USAGE',
-    'grid_transformation',
-    'PROJ',
-    'EPSG_4937_TO_EPSG_5799',
-    'EPSG','3237', -- area of use: Denmark onshore
-    'EPSG','1024'  -- unknown
-);
 
 INSERT INTO "grid_transformation" VALUES(
     'PROJ','EPSG_4937_TO_EPSG_5733','ETRS89 to DNN height',
@@ -30,7 +22,9 @@ INSERT INTO "grid_transformation" VALUES(
     'EPSG','5733', -- target CRS (DNN height)
     NULL,
     'EPSG','8666','Geoid (height correction) model file','dnn.gtx',
-    NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);
+    NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+    NULL,NULL,NULL,NULL,NULL,NULL,
+    NULL,NULL,NULL,NULL,NULL,NULL,0);
 
 INSERT INTO "usage" VALUES(
     'PROJ',
@@ -39,28 +33,6 @@ INSERT INTO "usage" VALUES(
     'PROJ',
     'EPSG_4937_TO_EPSG_5733',
     'EPSG','3237', -- area of use: Denmark onshore
-    'EPSG','1024'  -- unknown
-);
-
--- Faroe Islands
-
-INSERT INTO "grid_transformation" VALUES(
-    'PROJ','EPSG_4937_TO_EPSG_5317','ETRS89 to FVR09 height',
-    NULL,
-    'EPSG','9665','Geographic3D to GravityRelatedHeight (gtx)',
-    'EPSG','4937', -- source CRS (ETRS89)
-    'EPSG','5317', -- target CRS (FVR09 height)
-    NULL,
-    'EPSG','8666','Geoid (height correction) model file','fvr09.gtx',
-    NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);
-
-INSERT INTO "usage" VALUES(
-    'PROJ',
-    'EPSG_4937_TO_EPSG_5317_USAGE',
-    'grid_transformation',
-    'PROJ',
-    'EPSG_4937_TO_EPSG_5317',
-    'EPSG','3248', -- area of use: Faroe Islands - onshore
     'EPSG','1024'  -- unknown
 );
 
@@ -74,7 +46,9 @@ INSERT INTO "grid_transformation" VALUES(
     'EPSG','5613', -- target CRS (RH2000 height)
     NULL,
     'EPSG','8666','Geoid (height correction) model file','SWEN17_RH2000.gtx',
-    NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);
+    NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+    NULL,NULL,NULL,NULL,NULL,NULL,
+    NULL,NULL,NULL,NULL,NULL,NULL,0);
 
 INSERT INTO "usage" VALUES(
     'PROJ',
@@ -83,90 +57,6 @@ INSERT INTO "usage" VALUES(
     'PROJ',
     'EPSG_4977_TO_EPSG_5613',
     'EPSG','3313', -- area of use: Sweden onshore
-    'EPSG','1024'  -- unknown
-);
-
--- Iceland
-
-INSERT INTO "grid_transformation" VALUES(
-    'PROJ','EPSG_5323_TO_EPSG_8089','ISN2004 to ISH2004 height',
-    NULL,
-    'EPSG','9665','Geographic3D to GravityRelatedHeight (gtx)',
-    'EPSG','5323', -- source CRS (ISN2004 geographic 3D)
-    'EPSG','8089', -- target CRS (ISH2004 height)
-    NULL,
-    'EPSG','8666','Geoid (height correction) model file','Icegeoid_ISN2004.gtx',
-    NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);
-
-INSERT INTO "usage" VALUES(
-    'PROJ',
-    'EPSG_5323_TO_EPSG_8089_USAGE',
-    'grid_transformation',
-    'PROJ',
-    'EPSG_5323_TO_EPSG_8089',
-    'EPSG','1120', -- area of use: Iceland - onshore and offshore
-    'EPSG','1024'  -- unknown
-);
-
-INSERT INTO "grid_transformation" VALUES(
-    'PROJ','EPSG_4945_TO_EPSG_8089','ISN93 to ISH2004 height',
-    NULL,
-    'EPSG','9665','Geographic3D to GravityRelatedHeight (gtx)',
-    'EPSG','4945', -- source CRS (ISN93 geographic 3D)
-    'EPSG','8089', -- target CRS (ISH2004 height)
-    NULL,
-    'EPSG','8666','Geoid (height correction) model file','Icegeoid_ISN93.gtx',
-    NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);
-
-INSERT INTO "usage" VALUES(
-    'PROJ',
-    'EPSG_4945_TO_EPSG_8089_USAGE',
-    'grid_transformation',
-    'PROJ',
-    'EPSG_4945_TO_EPSG_8089',
-    'EPSG','1120', -- area of use: Iceland - onshore and offshore
-    'EPSG','1024'  -- unknown
-);
-
-INSERT INTO "grid_transformation" VALUES(
-    'PROJ','EPSG_8085_TO_EPSG_8089','ISN2016 to ISH2004 height',
-    NULL,
-    'EPSG','9665','Geographic3D to GravityRelatedHeight (gtx)',
-    'EPSG','8085', -- source CRS (ISN2016 geographic 3D)
-    'EPSG','8089', -- target CRS (ISH2004 height)
-    NULL,
-    'EPSG','8666','Geoid (height correction) model file','Icegeoid_ISN2016.gtx',
-    NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);
-
-INSERT INTO "usage" VALUES(
-    'PROJ',
-    'EPSG_8085_TO_EPSG_8089_USAGE',
-    'grid_transformation',
-    'PROJ',
-    'EPSG_8085_TO_EPSG_8089',
-    'EPSG','1120', -- area of use: Iceland - onshore and offshore
-    'EPSG','1024'  -- unknown
-);
-
--- Japan
-
-INSERT INTO "grid_transformation" VALUES(
-    'PROJ','EPSG_6667_TO_EPSG_6695','JDG2011 to JGD2011 height',
-    NULL,
-    'EPSG','9665','Geographic3D to GravityRelatedHeight (gtx)',
-    'EPSG','6667', -- source CRS (JDG2011)
-    'EPSG','6695', -- target CRS (JDG2011 (vertical) height)
-    NULL,
-    'EPSG','8666','Geoid (height correction) model file','jp_gsi_gsigeo2011.tif',
-    NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);
-
-INSERT INTO "usage" VALUES(
-    'PROJ',
-    'EPSG_6667_TO_EPSG_6695_USAGE',
-    'grid_transformation',
-    'PROJ',
-    'EPSG_6667_TO_EPSG_6695',
-    'EPSG','3263', -- area of use: Japan - onshore mainland
     'EPSG','1024'  -- unknown
 );
 
@@ -180,7 +70,9 @@ INSERT INTO "grid_transformation" VALUES(
     'EPSG','5729', -- target CRS (LHN95 height)
     NULL,
     'EPSG','8666','Geoid (height correction) model file','chgeo2004_ETRS.agr',
-    NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);
+    NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+    NULL,NULL,NULL,NULL,NULL,NULL,
+    NULL,NULL,NULL,NULL,NULL,NULL,0);
 
 INSERT INTO "usage" VALUES(
     'PROJ',
@@ -200,7 +92,9 @@ INSERT INTO "grid_transformation" VALUES(
     'EPSG','5728', -- target CRS (LN02 height)
     NULL,
     'EPSG','8666','Geoid (height correction) model file','chgeo2004_htrans_ETRS.agr',
-    NULL,NULL,NULL,NULL,NULL,NULL,NULL,0);
+    NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+    NULL,NULL,NULL,NULL,NULL,NULL,
+    NULL,NULL,NULL,NULL,NULL,NULL,0);
 
 INSERT INTO "usage" VALUES(
     'PROJ',

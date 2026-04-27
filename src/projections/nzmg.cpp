@@ -25,7 +25,6 @@
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  *****************************************************************************/
-#define PJ_LIB__
 
 #include <math.h>
 
@@ -39,35 +38,28 @@ PROJ_HEAD(nzmg, "New Zealand Map Grid") "\n\tfixed Earth";
 #define RAD_TO_SEC5 2.062648062470963551564733573
 
 static const COMPLEX bf[] = {
-    { .7557853228, 0.0},
-    { .249204646,  0.003371507},
-    {-.001541739,  0.041058560},
-    {-.10162907,   0.01727609},
-    {-.26623489,  -0.36249218},
-    {-.6870983,   -1.1651967} };
-
-static const double tphi[] = { 1.5627014243, .5185406398, -.03333098,
-                               -.1052906,   -.0368594,     .007317,
-                                .01220,      .00394,      -.0013 };
-
-static const double tpsi[] = { .6399175073, -.1358797613, .063294409, -.02526853, .0117879,
-                              -.0055161,     .0026906,   -.001333,     .00067,   -.00034 };
+    {.7557853228, 0.0},         {.249204646, 0.003371507},
+    {-.001541739, 0.041058560}, {-.10162907, 0.01727609},
+    {-.26623489, -0.36249218},  {-.6870983, -1.1651967}};
 
 #define Nbf 5
 #define Ntpsi 9
 #define Ntphi 8
 
-
-static PJ_XY nzmg_e_forward (PJ_LP lp, PJ *P) {          /* Ellipsoidal, forward */
-    PJ_XY xy = {0.0,0.0};
+static PJ_XY nzmg_e_forward(PJ_LP lp, PJ *P) { /* Ellipsoidal, forward */
+    PJ_XY xy = {0.0, 0.0};
     COMPLEX p;
     const double *C;
     int i;
 
+    static const double tpsi[] = {
+        .6399175073, -.1358797613, .063294409, -.02526853, .0117879,
+        -.0055161,   .0026906,     -.001333,   .00067,     -.00034};
+
     lp.phi = (lp.phi - P->phi0) * RAD_TO_SEC5;
     i = Ntpsi;
     C = tpsi + i;
-    for (p.r = *C; i ; --i) {
+    for (p.r = *C; i; --i) {
         --C;
         p.r = *C + lp.phi * p.r;
     }
@@ -80,17 +72,20 @@ static PJ_XY nzmg_e_forward (PJ_LP lp, PJ *P) {          /* Ellipsoidal, forward
     return xy;
 }
 
-
-static PJ_LP nzmg_e_inverse (PJ_XY xy, PJ *P) {          /* Ellipsoidal, inverse */
-    PJ_LP lp = {0.0,0.0};
+static PJ_LP nzmg_e_inverse(PJ_XY xy, PJ *P) { /* Ellipsoidal, inverse */
+    PJ_LP lp = {0.0, 0.0};
     int nn, i;
     COMPLEX p, f, fp, dp;
     double den;
     const double *C;
 
+    static const double tphi[] = {1.5627014243, .5185406398, -.03333098,
+                                  -.1052906,    -.0368594,   .007317,
+                                  .01220,       .00394,      -.0013};
+
     p.r = xy.y;
     p.i = xy.x;
-    for (nn = 20; nn ;--nn) {
+    for (nn = 20; nn; --nn) {
         f = pj_zpolyd1(p, bf, Nbf, &fp);
         f.r -= xy.y;
         f.i -= xy.x;
@@ -106,7 +101,7 @@ static PJ_LP nzmg_e_inverse (PJ_XY xy, PJ *P) {          /* Ellipsoidal, inverse
         lp.lam = p.i;
         i = Ntphi;
         C = tphi + i;
-        for (lp.phi = *C; i ; --i) {
+        for (lp.phi = *C; i; --i) {
             --C;
             lp.phi = *C + p.r * lp.phi;
         }
@@ -117,8 +112,7 @@ static PJ_LP nzmg_e_inverse (PJ_XY xy, PJ *P) {          /* Ellipsoidal, inverse
     return lp;
 }
 
-
-PJ *PROJECTION(nzmg) {
+PJ *PJ_PROJECTION(nzmg) {
     /* force to International major axis */
     P->ra = 1. / (P->a = 6378388.0);
     P->lam0 = DEG_TO_RAD * 173.;
@@ -129,6 +123,12 @@ PJ *PROJECTION(nzmg) {
     P->inv = nzmg_e_inverse;
     P->fwd = nzmg_e_forward;
 
-
     return P;
 }
+
+#undef EPSLN
+#undef SEC5_TO_RAD
+#undef RAD_TO_SEC5
+#undef Nbf
+#undef Ntpsi
+#undef Ntphi

@@ -35,6 +35,12 @@
 #include "proj_internal.h"
 #include <proj.h>
 
+#ifndef FROM_PROJ_CPP
+#define FROM_PROJ_CPP
+#endif
+
+#include "proj/internal/io_internal.hpp"
+
 #include <sqlite3.h>
 #include <time.h>
 
@@ -131,9 +137,8 @@ TEST(networking, basic) {
 
 #ifdef CURL_ENABLED
     // enable through env variable
-    ctx = proj_context_create();
-    proj_grid_cache_set_enable(ctx, false);
     putenv(const_cast<char *>("PROJ_NETWORK=ON"));
+    ctx = proj_context_create();
     P = proj_create(ctx, pipeline);
     if (networkAccessOK) {
         ASSERT_NE(P, nullptr);
@@ -168,11 +173,11 @@ TEST(networking, basic) {
         proj_context_destroy(ctx);
         return;
     }
-    double lon = 2;
+    double longitude = 2;
     double lat = 49;
-    proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat, sizeof(double),
-                       1, nullptr, 0, 0, nullptr, 0, 0);
-    EXPECT_NEAR(lon, 1.9992776848, 1e-10);
+    proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1, &lat,
+                       sizeof(double), 1, nullptr, 0, 0, nullptr, 0, 0);
+    EXPECT_NEAR(longitude, 1.9992776848, 1e-10);
     EXPECT_NEAR(lat, 48.9999322600, 1e-10);
 
     proj_destroy(P);
@@ -542,12 +547,12 @@ TEST(networking, custom) {
         exchange.events.emplace_back(std::move(event));
     }
     {
-        double lon = 2 / 180. * M_PI;
+        double longitude = 2 / 180. * M_PI;
         double lat = 49 / 180. * M_PI;
         double z = 0;
-        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat,
-                                     sizeof(double), 1, &z, sizeof(double), 1,
-                                     nullptr, 0, 0),
+        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1,
+                                     &lat, sizeof(double), 1, &z,
+                                     sizeof(double), 1, nullptr, 0, 0),
                   1U);
         EXPECT_EQ(z, 1.25);
     }
@@ -596,12 +601,12 @@ TEST(networking, custom) {
     }
 
     {
-        double lon = 2 / 180. * M_PI;
+        double longitude = 2 / 180. * M_PI;
         double lat = -49 / 180. * M_PI;
         double z = 0;
-        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat,
-                                     sizeof(double), 1, &z, sizeof(double), 1,
-                                     nullptr, 0, 0),
+        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1,
+                                     &lat, sizeof(double), 1, &z,
+                                     sizeof(double), 1, nullptr, 0, 0),
                   1U);
         EXPECT_EQ(z, 2.25);
     }
@@ -622,12 +627,12 @@ TEST(networking, custom) {
     ASSERT_NE(P, nullptr);
 
     {
-        double lon = 2 / 180. * M_PI;
+        double longitude = 2 / 180. * M_PI;
         double lat = 49 / 180. * M_PI;
         double z = 0;
-        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat,
-                                     sizeof(double), 1, &z, sizeof(double), 1,
-                                     nullptr, 0, 0),
+        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1,
+                                     &lat, sizeof(double), 1, &z,
+                                     sizeof(double), 1, nullptr, 0, 0),
                   1U);
         EXPECT_EQ(z, 1.25);
     }
@@ -866,12 +871,12 @@ TEST(networking, simul_read_range_error) {
     }
 
     {
-        double lon = 2 / 180. * M_PI;
+        double longitude = 2 / 180. * M_PI;
         double lat = 49 / 180. * M_PI;
         double z = 0;
-        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat,
-                                     sizeof(double), 1, &z, sizeof(double), 1,
-                                     nullptr, 0, 0),
+        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1,
+                                     &lat, sizeof(double), 1, &z,
+                                     sizeof(double), 1, nullptr, 0, 0),
                   1U);
         EXPECT_EQ(z, 1.25);
     }
@@ -889,13 +894,13 @@ TEST(networking, simul_read_range_error) {
     }
 
     {
-        double lon = 2 / 180. * M_PI;
+        double longitude = 2 / 180. * M_PI;
         double lat = -49 / 180. * M_PI;
         double z = 0;
         proj_log_func(ctx, nullptr, silent_logger);
-        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat,
-                                     sizeof(double), 1, &z, sizeof(double), 1,
-                                     nullptr, 0, 0),
+        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1,
+                                     &lat, sizeof(double), 1, &z,
+                                     sizeof(double), 1, nullptr, 0, 0),
                   1U);
         EXPECT_EQ(z, HUGE_VAL);
     }
@@ -1072,12 +1077,12 @@ TEST(networking, simul_file_change_while_opened) {
     }
 
     {
-        double lon = 2 / 180. * M_PI;
+        double longitude = 2 / 180. * M_PI;
         double lat = 49 / 180. * M_PI;
         double z = 0;
-        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat,
-                                     sizeof(double), 1, &z, sizeof(double), 1,
-                                     nullptr, 0, 0),
+        ASSERT_EQ(proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1,
+                                     &lat, sizeof(double), 1, &z,
+                                     sizeof(double), 1, nullptr, 0, 0),
                   1U);
         EXPECT_EQ(z, 1.25);
     }
@@ -1110,13 +1115,13 @@ TEST(networking, curl_hgridshift) {
     proj_grid_cache_set_enable(ctx, false);
     proj_context_set_enable_network(ctx, true);
 
-    // NAD83 to NAD83(HARN) in West-Virginia. Using wvhpgn.tif
-    auto P = proj_create_crs_to_crs(ctx, "EPSG:4269", "EPSG:4152", nullptr);
+    // NTF to ETRS89-FRA [RGF93 v1]. Using fr_ign_gr3df97a.tif
+    auto P = proj_create_crs_to_crs(ctx, "EPSG:4275", "EPSG:4171", nullptr);
     ASSERT_NE(P, nullptr);
 
     PJ_COORD c;
-    c.xyz.x = 40;  // lat
-    c.xyz.y = -80; // lon
+    c.xyz.x = 49; // lat
+    c.xyz.y = 2;  // long
     c.xyz.z = 0;
     c = proj_trans(P, PJ_FWD, c);
 
@@ -1125,8 +1130,8 @@ TEST(networking, curl_hgridshift) {
     proj_destroy(P);
     proj_context_destroy(ctx);
 
-    EXPECT_NEAR(c.xyz.x, 39.99999839, 1e-8);
-    EXPECT_NEAR(c.xyz.y, -79.99999807, 1e-8);
+    EXPECT_NEAR(c.xyz.x, 48.9999322600, 1e-8);
+    EXPECT_NEAR(c.xyz.y, 1.9992776848, 1e-8);
     EXPECT_NEAR(c.xyz.z, 0, 1e-2);
 }
 
@@ -1147,12 +1152,12 @@ TEST(networking, curl_vgridshift) {
 
     // WGS84 to EGM2008 height. Using egm08_25.tif
     auto P =
-        proj_create_crs_to_crs(ctx, "EPSG:4326", "EPSG:4326+3855", nullptr);
+        proj_create_crs_to_crs(ctx, "EPSG:4979", "EPSG:4326+3855", nullptr);
     ASSERT_NE(P, nullptr);
 
     PJ_COORD c;
     c.xyz.x = -30; // lat
-    c.xyz.y = 150; // lon
+    c.xyz.y = 150; // long
     c.xyz.z = 0;
     c = proj_trans(P, PJ_FWD, c);
 
@@ -1188,7 +1193,7 @@ TEST(networking, curl_vgridshift_vertcon) {
 
     PJ_COORD c;
     c.xyz.x = 40;  // lat
-    c.xyz.y = -80; // lon
+    c.xyz.y = -80; // long
     c.xyz.z = 0;
     c = proj_trans(P, PJ_FWD, c);
 
@@ -1218,7 +1223,7 @@ TEST(networking, network_endpoint_env_variable) {
 
     PJ_COORD c;
     c.xyz.x = 40;  // lat
-    c.xyz.y = -80; // lon
+    c.xyz.y = -80; // long
     c.xyz.z = 0;
     c = proj_trans(P, PJ_FWD, c);
     putenv(const_cast<char *>("PROJ_NETWORK_ENDPOINT="));
@@ -1235,26 +1240,247 @@ TEST(networking, network_endpoint_env_variable) {
 
 #ifdef CURL_ENABLED
 
-TEST(networking, network_endpoint_api) {
+TEST(networking, network_endpoint_api_and_not_reachable_gridshift) {
     auto ctx = proj_context_create();
     proj_grid_cache_set_enable(ctx, false);
     proj_context_set_enable_network(ctx, true);
     proj_context_set_url_endpoint(ctx, "http://0.0.0.0");
 
-    // NAD83 to NAD83(HARN) in West-Virginia. Using wvhpgn.tif
+    // NAD83 to NAD83(HARN) using
+    // us_noaa_nadcon5_nad83_1986_nad83_harn_conus.tif
     auto P = proj_create_crs_to_crs(ctx, "EPSG:4269", "EPSG:4152", nullptr);
     ASSERT_NE(P, nullptr);
 
     PJ_COORD c;
-    c.xyz.x = 40;  // lat
-    c.xyz.y = -80; // lon
-    c.xyz.z = 0;
-    c = proj_trans(P, PJ_FWD, c);
+    c.xyzt.x = 40;  // lat
+    c.xyzt.y = -80; // long
+    c.xyzt.z = 0;
+    c.xyzt.t = HUGE_VAL;
+
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_FWD, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "NAD83 to NAD83(HARN) (47)");
+        proj_destroy(last_op);
+    }
+
+    proj_errno_reset(P);
+
+    // Check again. Cf https://github.com/pyproj4/pyproj/issues/705
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_FWD, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "NAD83 to NAD83(HARN) (47)");
+        proj_destroy(last_op);
+    }
+
+    proj_errno_reset(P);
+
+    // Check also reverse direction
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_INV, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "NAD83 to NAD83(HARN) (47)");
+        proj_destroy(last_op);
+    }
 
     proj_destroy(P);
     proj_context_destroy(ctx);
+}
 
-    EXPECT_EQ(c.xyz.x, HUGE_VAL);
+#endif
+
+// ---------------------------------------------------------------------------
+
+#ifdef CURL_ENABLED
+
+TEST(networking, network_endpoint_api_and_not_reachable_xyzgridshift) {
+    auto ctx = proj_context_create();
+    proj_grid_cache_set_enable(ctx, false);
+    proj_context_set_enable_network(ctx, true);
+    proj_context_set_url_endpoint(ctx, "http://0.0.0.0");
+
+    // NTF to RGF93 using fr_ign_gr3df97a.tif
+    auto P = proj_create_crs_to_crs(ctx, "EPSG:4275", "EPSG:4171", nullptr);
+    ASSERT_NE(P, nullptr);
+
+    PJ_COORD c;
+    c.xyzt.x = 49; // lat
+    c.xyzt.y = 2;  // long
+    c.xyzt.z = 0;
+    c.xyzt.t = HUGE_VAL;
+
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_FWD, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "NTF to ETRS89-FRA [RGF93 v1] (1)");
+        proj_destroy(last_op);
+    }
+
+    proj_errno_reset(P);
+
+    // Check again. Cf https://github.com/pyproj4/pyproj/issues/705
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_FWD, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "NTF to ETRS89-FRA [RGF93 v1] (1)");
+        proj_destroy(last_op);
+    }
+
+    proj_errno_reset(P);
+
+    // Check also reverse direction
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_INV, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "NTF to ETRS89-FRA [RGF93 v1] (1)");
+        proj_destroy(last_op);
+    }
+
+    proj_destroy(P);
+    proj_context_destroy(ctx);
+}
+
+#endif
+
+// ---------------------------------------------------------------------------
+
+#ifdef CURL_ENABLED
+
+TEST(networking, network_endpoint_api_and_not_reachable_hgridshift) {
+    auto ctx = proj_context_create();
+    proj_grid_cache_set_enable(ctx, false);
+    proj_context_set_enable_network(ctx, true);
+    proj_context_set_url_endpoint(ctx, "http://0.0.0.0");
+
+    // MGI to ETRS89 using at_bev_AT_GIS_GRID_2021_09_28.tif
+    auto P = proj_create_crs_to_crs(ctx, "EPSG:4312", "EPSG:4258", nullptr);
+    ASSERT_NE(P, nullptr);
+
+    PJ_COORD c;
+    c.xyzt.x = 48; // lat
+    c.xyzt.y = 15; // long
+    c.xyzt.z = 0;
+    c.xyzt.t = HUGE_VAL;
+
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_FWD, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "MGI to ETRS89-AUT [2002] (8)");
+        proj_destroy(last_op);
+    }
+
+    proj_errno_reset(P);
+
+    // Check again. Cf https://github.com/pyproj4/pyproj/issues/705
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_FWD, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "MGI to ETRS89-AUT [2002] (8)");
+        proj_destroy(last_op);
+    }
+
+    proj_errno_reset(P);
+
+    // Check also reverse direction
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_INV, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "MGI to ETRS89-AUT [2002] (8)");
+        proj_destroy(last_op);
+    }
+
+    proj_destroy(P);
+    proj_context_destroy(ctx);
+}
+
+#endif
+
+// ---------------------------------------------------------------------------
+
+#ifdef CURL_ENABLED
+
+TEST(networking, network_endpoint_api_and_not_reachable_vgridshift) {
+    auto ctx = proj_context_create();
+    proj_grid_cache_set_enable(ctx, false);
+    proj_context_set_enable_network(ctx, true);
+    proj_context_set_url_endpoint(ctx, "http://0.0.0.0");
+
+    // "POSGAR 2007 to SRVN16 height (1)" using ar_ign_GEOIDE-Ar16.tif
+    auto P = proj_create_crs_to_crs(ctx, "EPSG:5342", "EPSG:9521", nullptr);
+    ASSERT_NE(P, nullptr);
+
+    PJ_COORD c;
+    c.xyzt.x = -40; // lat
+    c.xyzt.y = -60; // long
+    c.xyzt.z = 0;
+    c.xyzt.t = HUGE_VAL;
+
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_FWD, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "POSGAR 2007 to SRVN16 height (1)");
+        proj_destroy(last_op);
+    }
+
+    proj_errno_reset(P);
+
+    // Check again. Cf https://github.com/pyproj4/pyproj/issues/705
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_FWD, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "POSGAR 2007 to SRVN16 height (1)");
+        proj_destroy(last_op);
+    }
+
+    proj_errno_reset(P);
+
+    // Check also reverse direction
+    {
+        PJ_COORD c2 = proj_trans(P, PJ_INV, c);
+        EXPECT_EQ(c2.xyz.x, HUGE_VAL);
+        EXPECT_EQ(proj_errno(P), PROJ_ERR_OTHER_NETWORK_ERROR);
+        PJ *last_op = proj_trans_get_last_used_operation(P);
+        EXPECT_STREQ(proj_pj_info(last_op).description,
+                     "POSGAR 2007 to SRVN16 height (1)");
+        proj_destroy(last_op);
+    }
+
+    proj_destroy(P);
+    proj_context_destroy(ctx);
 }
 
 #endif
@@ -1265,26 +1491,28 @@ TEST(networking, network_endpoint_api) {
 
 static PROJ_NETWORK_HANDLE *dummy_open_cbk(PJ_CONTEXT *, const char *,
                                            unsigned long long, size_t, void *,
-                                           size_t *, size_t, char *, void *) {
-    assert(false);
+                                           size_t *, size_t, char *,
+                                           void *pUserData) {
+    *static_cast<bool *>(pUserData) = true;
     return nullptr;
 }
 
-static void dummy_close_cbk(PJ_CONTEXT *, PROJ_NETWORK_HANDLE *, void *) {
-    assert(false);
+static void dummy_close_cbk(PJ_CONTEXT *, PROJ_NETWORK_HANDLE *,
+                            void *pUserData) {
+    *static_cast<bool *>(pUserData) = true;
 }
 
 static const char *dummy_get_header_value_cbk(PJ_CONTEXT *,
                                               PROJ_NETWORK_HANDLE *,
-                                              const char *, void *) {
-    assert(false);
+                                              const char *, void *pUserData) {
+    *static_cast<bool *>(pUserData) = true;
     return nullptr;
 }
 
 static size_t dummy_read_range_cbk(PJ_CONTEXT *, PROJ_NETWORK_HANDLE *,
                                    unsigned long long, size_t, void *, size_t,
-                                   char *, void *) {
-    assert(false);
+                                   char *, void *pUserData) {
+    *static_cast<bool *>(pUserData) = true;
     return 0;
 }
 
@@ -1333,12 +1561,14 @@ TEST(networking, cache_basic) {
     proj_cleanup();
 
     // Check that a second access doesn't trigger any network activity
+    bool networkActivity = false;
     ASSERT_TRUE(proj_context_set_network_callbacks(
         ctx, dummy_open_cbk, dummy_close_cbk, dummy_get_header_value_cbk,
-        dummy_read_range_cbk, nullptr));
+        dummy_read_range_cbk, &networkActivity));
     P = proj_create(ctx, pipeline);
     ASSERT_NE(P, nullptr);
     proj_destroy(P);
+    EXPECT_FALSE(networkActivity);
 
     proj_context_destroy(ctx);
 }
@@ -1422,11 +1652,11 @@ TEST(networking, cache_saturation) {
     auto P = proj_create(ctx, pipeline);
     ASSERT_NE(P, nullptr);
 
-    double lon = 2;
+    double longitude = 2;
     double lat = 49;
-    proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat, sizeof(double),
-                       1, nullptr, 0, 0, nullptr, 0, 0);
-    EXPECT_NEAR(lon, 1.9992776848, 1e-10);
+    proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1, &lat,
+                       sizeof(double), 1, nullptr, 0, 0, nullptr, 0, 0);
+    EXPECT_NEAR(longitude, 1.9992776848, 1e-10);
     EXPECT_NEAR(lat, 48.9999322600, 1e-10);
 
     proj_destroy(P);
@@ -1480,11 +1710,11 @@ TEST(networking, cache_ttl) {
     auto P = proj_create(ctx, pipeline);
     ASSERT_NE(P, nullptr);
 
-    double lon = 2;
+    double longitude = 2;
     double lat = 49;
-    proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat, sizeof(double),
-                       1, nullptr, 0, 0, nullptr, 0, 0);
-    EXPECT_NEAR(lon, 1.9992776848, 1e-10);
+    proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1, &lat,
+                       sizeof(double), 1, nullptr, 0, 0, nullptr, 0, 0);
+    EXPECT_NEAR(longitude, 1.9992776848, 1e-10);
     EXPECT_NEAR(lat, 48.9999322600, 1e-10);
 
     proj_destroy(P);
@@ -1584,11 +1814,11 @@ TEST(networking, cache_lock) {
     auto P = proj_create(ctx, pipeline);
     ASSERT_NE(P, nullptr);
 
-    double lon = 2;
+    double longitude = 2;
     double lat = 49;
-    proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat, sizeof(double),
-                       1, nullptr, 0, 0, nullptr, 0, 0);
-    EXPECT_NEAR(lon, 1.9992776848, 1e-10);
+    proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1, &lat,
+                       sizeof(double), 1, nullptr, 0, 0, nullptr, 0, 0);
+    EXPECT_NEAR(longitude, 1.9992776848, 1e-10);
     EXPECT_NEAR(lat, 48.9999322600, 1e-10);
 
     proj_destroy(P);
@@ -1642,13 +1872,50 @@ TEST(networking, download_whole_files) {
     putenv(const_cast<char *>("PROJ_SKIP_READ_USER_WRITABLE_DIRECTORY="));
     putenv(const_cast<char *>("PROJ_USER_WRITABLE_DIRECTORY=./proj_test_tmp"));
     putenv(const_cast<char *>("PROJ_FULL_FILE_CHUNK_SIZE=100000"));
+
+    proj_context_set_enable_network(nullptr, true);
+    const auto grid_info = proj_grid_info("dk_sdfe_dvr90.tif");
+    EXPECT_EQ(std::string(grid_info.filename), "");
+    EXPECT_EQ(std::string(grid_info.gridname), "dk_sdfe_dvr90.tif");
+    EXPECT_EQ(std::string(grid_info.format), "gtiff");
+    proj_context_set_enable_network(nullptr, false);
+
     auto ctx = proj_context_create();
+
+    auto dbContext = ctx->get_cpp_context()->getDatabaseContext();
+    std::string fullFilename;
+    std::string packageName;
+    std::string url;
+    bool directDownload;
+    bool openLicense;
+    bool gridAvailable = false;
+    EXPECT_FALSE(dbContext->lookForGridInfo(
+        "dk_sdfe_dvr90.tif", false, fullFilename, packageName, url,
+        directDownload, openLicense, gridAvailable));
+    EXPECT_FALSE(gridAvailable);
+
     proj_context_set_enable_network(ctx, true);
 
     ASSERT_TRUE(proj_is_download_needed(ctx, "dk_sdfe_dvr90.tif", false));
 
+    char out_full_filename[1024];
+    EXPECT_FALSE(pj_find_file(ctx, "dk_sdfe_dvr90.tif", out_full_filename,
+                              sizeof(out_full_filename)));
+    EXPECT_STREQ(out_full_filename, "");
+
     ASSERT_TRUE(
         proj_download_file(ctx, "dk_sdfe_dvr90.tif", false, nullptr, nullptr));
+
+    EXPECT_TRUE(pj_find_file(ctx, "dk_sdfe_dvr90.tif", out_full_filename,
+                             sizeof(out_full_filename)));
+    EXPECT_NE(out_full_filename[0], 0);
+
+    // lookForGridInfo() returns false because the grid is not known in the DB,
+    // but it returns gridAvailable as it is found on the system.
+    EXPECT_FALSE(dbContext->lookForGridInfo(
+        "dk_sdfe_dvr90.tif", false, fullFilename, packageName, url,
+        directDownload, openLicense, gridAvailable));
+    EXPECT_TRUE(gridAvailable);
 
     FILE *f = fopen("proj_test_tmp/dk_sdfe_dvr90.tif", "rb");
     ASSERT_NE(f, nullptr);
@@ -1665,11 +1932,11 @@ TEST(networking, download_whole_files) {
     auto P = proj_create(ctx, pipeline);
     ASSERT_NE(P, nullptr);
 
-    double lon = 12;
+    double longitude = 12;
     double lat = 56;
     double z = 0;
-    proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat, sizeof(double),
-                       1, &z, sizeof(double), 1, nullptr, 0, 0);
+    proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1, &lat,
+                       sizeof(double), 1, &z, sizeof(double), 1, nullptr, 0, 0);
     EXPECT_NEAR(z, 36.5909996032715, 1e-10);
     proj_destroy(P);
 
@@ -1809,11 +2076,10 @@ TEST(networking, file_api) {
                       PROJ_OPEN_ACCESS access,
                       void *user_data) -> PROJ_FILE_HANDLE * {
         static_cast<UserData *>(user_data)->in_open = true;
-        return reinterpret_cast<PROJ_FILE_HANDLE *>(fopen(
-            filename,
-            access == PROJ_OPEN_ACCESS_READ_ONLY
-                ? "rb"
-                : access == PROJ_OPEN_ACCESS_READ_UPDATE ? "r+b" : "w+b"));
+        return reinterpret_cast<PROJ_FILE_HANDLE *>(
+            fopen(filename, access == PROJ_OPEN_ACCESS_READ_ONLY     ? "rb"
+                            : access == PROJ_OPEN_ACCESS_READ_UPDATE ? "r+b"
+                                                                     : "w+b"));
     };
     api.read_cbk = [](PJ_CONTEXT *, PROJ_FILE_HANDLE *handle, void *buffer,
                       size_t sizeBytes, void *user_data) -> size_t {
@@ -1896,11 +2162,11 @@ TEST(networking, file_api) {
     auto P = proj_create(ctx, pipeline);
     ASSERT_NE(P, nullptr);
 
-    double lon = 12;
+    double longitude = 12;
     double lat = 56;
     double z = 0;
-    proj_trans_generic(P, PJ_FWD, &lon, sizeof(double), 1, &lat, sizeof(double),
-                       1, &z, sizeof(double), 1, nullptr, 0, 0);
+    proj_trans_generic(P, PJ_FWD, &longitude, sizeof(double), 1, &lat,
+                       sizeof(double), 1, &z, sizeof(double), 1, nullptr, 0, 0);
     EXPECT_NEAR(z, 36.5909996032715, 1e-10);
 
     proj_destroy(P);
@@ -1915,6 +2181,147 @@ TEST(networking, file_api) {
     unlink("proj_test_tmp/cache.db");
     unlink("proj_test_tmp/dk_sdfe_dvr90.tif");
     rmdir("proj_test_tmp");
+}
+
+#endif
+
+// ---------------------------------------------------------------------------
+
+#ifdef CURL_ENABLED
+
+TEST(networking, proj_coordoperation_get_grid_used) {
+    if (!networkAccessOK) {
+        return;
+    }
+
+    auto ctx = proj_context_create();
+    proj_grid_cache_set_enable(ctx, false);
+    proj_context_set_enable_network(ctx, true);
+
+    // Test bugfix for
+    // https://github.com/OSGeo/PROJ/issues/3444#issuecomment-1309499342
+    for (int i = 0; i < 2; ++i) {
+        // This file is not in grid_alternatives, but in the CDN
+        const char *proj_string =
+            "proj=vgridshift grids=nz_linz_nzgd2000-c120100904-grid01.tif";
+        PJ *P = proj_create(ctx, proj_string);
+
+        const char *shortName = nullptr;
+        const char *fullName = nullptr;
+        const char *packageName = nullptr;
+        const char *url = nullptr;
+        int directDownload = 0;
+        int openLicense = 0;
+        int available = 0;
+
+        proj_coordoperation_get_grid_used(ctx, P, 0, &shortName, &fullName,
+                                          &packageName, &url, &directDownload,
+                                          &openLicense, &available);
+
+        EXPECT_EQ(std::string(shortName),
+                  "nz_linz_nzgd2000-c120100904-grid01.tif");
+        EXPECT_EQ(std::string(fullName), "");
+        EXPECT_EQ(
+            std::string(url),
+            "https://cdn.proj.org/nz_linz_nzgd2000-c120100904-grid01.tif");
+
+        proj_destroy(P);
+    }
+
+    proj_context_destroy(ctx);
+}
+
+#endif
+
+// ---------------------------------------------------------------------------
+
+#ifdef CURL_ENABLED
+
+TEST(networking, pyproj_issue_1192) {
+    if (!networkAccessOK) {
+        return;
+    }
+
+    const auto doTest = [](PJ_CONTEXT *ctxt) {
+        auto factory_context =
+            proj_create_operation_factory_context(ctxt, nullptr);
+        proj_operation_factory_context_set_grid_availability_use(
+            ctxt, factory_context, PROJ_GRID_AVAILABILITY_IGNORED);
+        proj_operation_factory_context_set_spatial_criterion(
+            ctxt, factory_context, PROJ_SPATIAL_CRITERION_PARTIAL_INTERSECTION);
+        auto from = proj_create(ctxt, "EPSG:4326");
+        auto to = proj_create(ctxt, "EPSG:2964");
+        auto pj_operations =
+            proj_create_operations(ctxt, from, to, factory_context);
+        proj_destroy(from);
+        proj_destroy(to);
+        auto num_operations = proj_list_get_count(pj_operations);
+        for (int i = 0; i < num_operations; ++i) {
+            PJ *P = proj_list_get(ctxt, pj_operations, i);
+            int is_instantiable = proj_coordoperation_is_instantiable(ctxt, P);
+            if (is_instantiable) {
+                EXPECT_TRUE(proj_pj_info(P).id != nullptr);
+            }
+            proj_destroy(P);
+        }
+        proj_operation_factory_context_destroy(factory_context);
+        proj_list_destroy(pj_operations);
+    };
+
+    auto ctx = proj_context_create();
+    proj_grid_cache_set_enable(ctx, false);
+    proj_context_set_enable_network(ctx, true);
+    doTest(ctx);
+    proj_context_set_enable_network(ctx, false);
+    doTest(ctx);
+
+    proj_context_destroy(ctx);
+}
+
+#endif
+
+// ---------------------------------------------------------------------------
+
+#ifdef CURL_ENABLED
+
+TEST(networking, do_not_attempt_network_access_known_available_network_on) {
+
+    // Check that proj_create_operations() itself does not trigger network
+    // activity in enable_network == true and
+    // PROJ_GRID_AVAILABILITY_KNOWN_AVAILABLE mode when all grids are known.
+
+    const auto doTest = [](PJ_CONTEXT *ctxt) {
+        auto factory_context =
+            proj_create_operation_factory_context(ctxt, nullptr);
+        proj_operation_factory_context_set_grid_availability_use(
+            ctxt, factory_context, PROJ_GRID_AVAILABILITY_KNOWN_AVAILABLE);
+        proj_operation_factory_context_set_spatial_criterion(
+            ctxt, factory_context, PROJ_SPATIAL_CRITERION_PARTIAL_INTERSECTION);
+        auto from = proj_create(ctxt, "EPSG:4326");
+        auto to = proj_create(ctxt, "EPSG:4267");
+        auto pj_operations =
+            proj_create_operations(ctxt, from, to, factory_context);
+        proj_destroy(from);
+        proj_destroy(to);
+        auto num_operations = proj_list_get_count(pj_operations);
+        EXPECT_GE(num_operations, 10);
+        proj_operation_factory_context_destroy(factory_context);
+        proj_list_destroy(pj_operations);
+    };
+
+    auto ctx = proj_context_create();
+    proj_context_set_enable_network(ctx, true);
+
+    // Check that we don't trigger any network activity
+    bool networkActivity = false;
+    ASSERT_TRUE(proj_context_set_network_callbacks(
+        ctx, dummy_open_cbk, dummy_close_cbk, dummy_get_header_value_cbk,
+        dummy_read_range_cbk, &networkActivity));
+
+    doTest(ctx);
+    EXPECT_FALSE(networkActivity);
+
+    proj_context_destroy(ctx);
 }
 
 #endif

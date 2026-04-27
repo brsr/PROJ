@@ -1,5 +1,4 @@
 /* dervative of (*P->fwd) projection */
-#define PJ_LIB__
 
 #include <math.h>
 
@@ -9,8 +8,8 @@
 int pj_deriv(PJ_LP lp, double h, const PJ *P, struct DERIVS *der) {
     PJ_XY t;
     /* get rid of constness until we can do it for real */
-    PJ *Q = (PJ *) P;
-    if (nullptr==Q->fwd)
+    PJ *Q = (PJ *)P;
+    if (nullptr == Q->fwd)
         return 1;
 
     lp.lam += h;

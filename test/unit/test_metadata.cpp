@@ -28,6 +28,8 @@
 
 #include "gtest_include.h"
 
+#include <limits>
+
 #include "proj/io.hpp"
 #include "proj/metadata.hpp"
 #include "proj/util.hpp"
@@ -279,6 +281,110 @@ TEST(metadata, extent) {
 
 // ---------------------------------------------------------------------------
 
+TEST(metadata, extent_edge_cases) {
+    Extent::create(
+        optional<std::string>(), std::vector<GeographicExtentNNPtr>(),
+        std::vector<VerticalExtentNNPtr>(), std::vector<TemporalExtentNNPtr>());
+
+    EXPECT_THROW(Extent::createFromBBOX(
+                     std::numeric_limits<double>::quiet_NaN(), -90, 180, 90),
+                 InvalidValueTypeException);
+    EXPECT_THROW(Extent::createFromBBOX(
+                     -180, std::numeric_limits<double>::quiet_NaN(), 180, 90),
+                 InvalidValueTypeException);
+    EXPECT_THROW(Extent::createFromBBOX(
+                     -180, -90, std::numeric_limits<double>::quiet_NaN(), 90),
+                 InvalidValueTypeException);
+    EXPECT_THROW(Extent::createFromBBOX(
+                     -180, -90, 180, std::numeric_limits<double>::quiet_NaN()),
+                 InvalidValueTypeException);
+
+    // South > north
+    EXPECT_THROW(Extent::createFromBBOX(-100, 10, 100, 0),
+                 InvalidValueTypeException);
+
+    // Scenario of https://bugs.chromium.org/p/oss-fuzz/issues/detail?id=57328
+    // and https://bugs.chromium.org/p/oss-fuzz/issues/detail?id=60084
+    {
+        auto A = Extent::createFromBBOX(0, 1, 2, 3);
+        auto B = Extent::createFromBBOX(200, -80, -100, 80);
+        EXPECT_FALSE(A->intersects(B));
+        EXPECT_FALSE(B->intersects(A));
+        EXPECT_TRUE(A->intersection(B) == nullptr);
+        EXPECT_TRUE(B->intersection(A) == nullptr);
+    }
+    {
+        auto A = Extent::createFromBBOX(0, 1, 2, 3);
+        auto B = Extent::createFromBBOX(100, -80, -200, 80);
+        EXPECT_FALSE(A->intersects(B));
+        EXPECT_FALSE(B->intersects(A));
+        EXPECT_TRUE(A->intersection(B) == nullptr);
+        EXPECT_TRUE(B->intersection(A) == nullptr);
+    }
+
+    // Test degenerate bounding box on a point
+    {
+        auto A = Extent::createFromBBOX(1, 2, 1, 2);
+        auto B = Extent::createFromBBOX(-10, -10, 10, 10);
+        EXPECT_TRUE(A->intersects(B));
+        EXPECT_TRUE(B->intersects(A));
+        EXPECT_FALSE(A->contains(B));
+        EXPECT_TRUE(B->contains(A));
+        EXPECT_TRUE(A->intersection(B) != nullptr);
+        EXPECT_TRUE(B->intersection(A) != nullptr);
+    }
+
+    // Test degenerate bounding box on a line at long=-180
+    {
+        auto A = Extent::createFromBBOX(-180, 2, -180, 3);
+        auto B = Extent::createFromBBOX(-180, -90, 180, 90);
+        EXPECT_TRUE(A->intersects(B));
+        EXPECT_TRUE(B->intersects(A));
+        EXPECT_FALSE(A->contains(B));
+        EXPECT_TRUE(B->contains(A));
+        EXPECT_TRUE(A->intersection(B) != nullptr);
+        EXPECT_TRUE(B->intersection(A) != nullptr);
+    }
+
+    // Test degenerate bounding box on a line at long=180
+    {
+        auto A = Extent::createFromBBOX(180, 2, 180, 3);
+        auto B = Extent::createFromBBOX(-180, -90, 180, 90);
+        EXPECT_TRUE(A->intersects(B));
+        EXPECT_TRUE(B->intersects(A));
+        EXPECT_FALSE(A->contains(B));
+        EXPECT_TRUE(B->contains(A));
+        EXPECT_TRUE(A->intersection(B) != nullptr);
+        EXPECT_TRUE(B->intersection(A) != nullptr);
+    }
+
+    // Test degenerate bounding box on a line at lat=90
+    {
+        auto A = Extent::createFromBBOX(2, 90, 3, 90);
+        auto B = Extent::createFromBBOX(-180, -90, 180, 90);
+        EXPECT_TRUE(A->intersects(B));
+        EXPECT_TRUE(B->intersects(A));
+        EXPECT_FALSE(A->contains(B));
+        EXPECT_TRUE(B->contains(A));
+        EXPECT_TRUE(A->intersection(B) != nullptr);
+        EXPECT_TRUE(B->intersection(A) != nullptr);
+    }
+
+    // Test degenerate bounding box on a line at lat=-90
+    {
+        auto A = Extent::createFromBBOX(2, -90, 3, -90);
+        auto B = Extent::createFromBBOX(-180, -90, 180, 90);
+        EXPECT_TRUE(A->intersects(B));
+        EXPECT_TRUE(B->intersects(A));
+        EXPECT_FALSE(A->contains(B));
+        EXPECT_TRUE(B->contains(A));
+        EXPECT_TRUE(A->intersection(B) != nullptr);
+        EXPECT_TRUE(B->intersection(A) != nullptr);
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 TEST(metadata, identifier_empty) {
     auto id(Identifier::create());
     Identifier id2(*id);
@@ -383,16 +489,36 @@ TEST(metadata, id) {
 // ---------------------------------------------------------------------------
 
 TEST(metadata, Identifier_isEquivalentName) {
+    EXPECT_TRUE(Identifier::isEquivalentName("", ""));
+    EXPECT_TRUE(Identifier::isEquivalentName("x", "x"));
+    EXPECT_TRUE(Identifier::isEquivalentName("x", "X"));
+    EXPECT_TRUE(Identifier::isEquivalentName("X", "x"));
+    EXPECT_FALSE(Identifier::isEquivalentName("x", ""));
+    EXPECT_FALSE(Identifier::isEquivalentName("", "x"));
+    EXPECT_FALSE(Identifier::isEquivalentName("x", "y"));
     EXPECT_TRUE(Identifier::isEquivalentName("Central_Meridian",
                                              "Central_- ()/Meridian"));
 
     EXPECT_TRUE(Identifier::isEquivalentName("\xc3\xa1", "a"));
+    EXPECT_FALSE(Identifier::isEquivalentName("\xc3", "a"));
 
     EXPECT_TRUE(Identifier::isEquivalentName("a", "\xc3\xa1"));
+    EXPECT_FALSE(Identifier::isEquivalentName("a", "\xc3"));
 
     EXPECT_TRUE(Identifier::isEquivalentName("\xc3\xa4", "\xc3\xa1"));
 
     EXPECT_TRUE(Identifier::isEquivalentName(
         "Unknown based on International 1924 (Hayford 1909, 1910) ellipsoid",
         "Unknown_based_on_International_1924_Hayford_1909_1910_ellipsoid"));
+
+    EXPECT_TRUE(Identifier::isEquivalentName("foo + ", "foo + "));
+    EXPECT_TRUE(Identifier::isEquivalentName("foo + bar", "foo + bar"));
+    EXPECT_TRUE(Identifier::isEquivalentName("foo + bar", "foobar"));
+
+    EXPECT_TRUE(Identifier::isEquivalentName("foo_IntlFeet", "foo_Feet"));
+    EXPECT_TRUE(Identifier::isEquivalentName("foo_Feet", "foo_IntlFeet"));
+    EXPECT_FALSE(
+        Identifier::isEquivalentName("foo_IntlFeet_bar", "foo_Feet_bar"));
+    EXPECT_FALSE(
+        Identifier::isEquivalentName("foo_Feet_bar", "foo_IntlFeet_bar"));
 }

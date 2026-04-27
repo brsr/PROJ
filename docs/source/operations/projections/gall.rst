@@ -42,15 +42,19 @@ It is used in several British atlases, but seldom in the United States.
 The Gall projection is neither conformal nor equal-area, but has a blend of various features.
 Unlike the Mercator, the Gall shows the poles as lines running across the top and bottom of the map.
 
+.. note::
+
+    The Gall projection must not be confused with the Gall-Peters one, the later
+    being a specialization of :ref:`cea`.
 
 Example using Gall Stereographic  ::
 
-    $ echo 9 51 | proj +proj=gall +lon_0=0 +x_0=0 +y_0=0 +ellps=WGS84 +units=m
+    $ echo 9 51 | proj +proj=gall
     708432.90   5193386.36
 
 Example using Gall Stereographic (Central meridian 90°W) ::
 
-    $ echo 9 51 | proj +proj=gall +lon_0=90w +x_0=0 +y_0=0 +ellps=WGS84 +units=m
+    $ echo 9 51 | proj +proj=gall +lon_0=90w
     7792761.91  5193386.36
 
 Parameters

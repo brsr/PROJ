@@ -69,6 +69,7 @@ class WKTConstants {
     static const std::string EXTENSION;   // WKT1 only - GDAL specific
     static const std::string LOCAL_CS;    // WKT1 only
     static const std::string LOCAL_DATUM; // WKT1 only
+    static const std::string LINUNIT;     // WKT1 ESRI (ArcGIS Pro >= 2.7)
 
     // WKT2 preferred
     static const std::string GEODCRS;
@@ -85,6 +86,7 @@ class WKTConstants {
     static const std::string MERIDIAN;
     static const std::string ORDER;
     static const std::string ANCHOR;
+    static const std::string ANCHOREPOCH; // WKT2-2019
     static const std::string CONVERSION;
     static const std::string METHOD;
     static const std::string REMARK;
@@ -135,7 +137,13 @@ class WKTConstants {
     static const std::string BASEPARAMCRS;
     static const std::string BASETIMECRS;
     static const std::string VERSION;
-    static const std::string GEOIDMODEL; // WKT2-2019
+    static const std::string GEOIDMODEL;           // WKT2-2019
+    static const std::string COORDINATEMETADATA;   // WKT2-2019
+    static const std::string EPOCH;                // WKT2-2019
+    static const std::string AXISMINVALUE;         // WKT2-2019
+    static const std::string AXISMAXVALUE;         // WKT2-2019
+    static const std::string RANGEMEANING;         // WKT2-2019
+    static const std::string POINTMOTIONOPERATION; // WKT2-2019
 
     // WKT2 alternate (longer or shorter)
     static const std::string GEODETICCRS;
@@ -167,7 +175,7 @@ NS_PROJ_END
 // ---------------------------------------------------------------------------
 
 /** Auxiliary structure to PJ_CONTEXT storing C++ context stuff. */
-struct projCppContext {
+struct PROJ_GCC_DLL projCppContext {
   private:
     NS_PROJ::io::DatabaseContextPtr databaseContext_{};
     PJ_CONTEXT *ctx_ = nullptr;
@@ -200,7 +208,13 @@ struct projCppContext {
         return auxDbPaths_;
     }
 
-    NS_PROJ::io::DatabaseContextNNPtr getDatabaseContext();
+    NS_PROJ::io::DatabaseContextNNPtr PROJ_FOR_TEST getDatabaseContext();
+
+    /** Return the database context only if already opened.
+     * Does not attempt to open proj.db. */
+    inline NS_PROJ::io::DatabaseContextPtr getDatabaseContextIfOpen() const {
+        return databaseContext_;
+    }
 
     void closeDb() { databaseContext_ = nullptr; }
 };
